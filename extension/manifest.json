@@ -3,7 +3,7 @@
   "name": "FocusGuard - Alerta YouTube",
   "version": "0.1.0",
   "description": "Alerta cuando ingresas a YouTube para evitar procrastinar.",
-  "permissions": ["tabs"],
+  "permissions": ["tabs", "activeTab", "scripting"],
   "action": {
     "default_popup": "popup.html",
     "default_title": "FocusGuard"
