@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "FocusGuard - Alerta YouTube",
+  "version": "0.1.0",
+  "description": "Alerta cuando ingresas a YouTube para evitar procrastinar.",
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
