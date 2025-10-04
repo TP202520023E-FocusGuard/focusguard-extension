@@ -30,6 +30,39 @@ section {
   font-size: 0.95rem;
 }
 
+.manual-correction {
+  border-top: 1px solid #d9d9d9;
+  padding-top: 8px;
+  font-size: 0.9rem;
+}
+
+#correct-classification {
+  align-self: flex-start;
+  padding: 4px 12px;
+  font-size: 0.9rem;
+  border: 1px solid #1f1f1f;
+  border-radius: 4px;
+  background-color: #ffffff;
+  color: #1f1f1f;
+  cursor: pointer;
+}
+
+#correct-classification:hover {
+  background-color: #f0f0f0;
+}
+
+.dashboard-link {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 0.9rem;
+  color: #1a5fb4;
+  text-decoration: none;
+}
+
+.dashboard-link:hover {
+  text-decoration: underline;
+}
+
 p {
   margin: 0;
 }
