@@ -1,175 +1,366 @@
-// Alerta al cargar la página (primer ingreso)
-// alert("Estás en YouTube — cuidado con procrastinar.");
-
-// YouTube es SPA; detectamos cambios de URL internos para volver a alertar (con throttle)
-/*
-let lastUrl = location.href;
-let lastAlert = Date.now();
-
-const maybeAlert = () => {
-  const now = Date.now();
-  // Evita spamear: máx. una alerta cada 60s
-  if (now - lastAlert > 60_000) {
-    lastAlert = now;
-    alert("Estás navegando en YouTube — foco, foco");
-  }
-};
-
-new MutationObserver(() => {
-  const url = location.href;
-  if (url !== lastUrl) {
-    lastUrl = url;
-    maybeAlert();
-  }
-}).observe(document, { subtree: true, childList: true });
-*/
-
 const SHOW_DELAY_MS = 10_000;
 const LOCK_DURATION_MS = 30_000;
 const THROTTLE_MS = 60_000;
-const BANNER_ID = "focusguard-banner";
+const BANNER_ROOT_ID = "focusguard-banner";
+const STYLE_TAG_ID = "focusguard-banner-styles";
 
 let lastUrl = location.href;
 let lastBannerTime = 0;
 let pendingTimeout = null;
+let activeCleanup = null;
+let activeRoot = null;
 
-const createBanner = () => {
-  if (document.getElementById(BANNER_ID)) {
+const ensureBannerStyles = () => {
+  if (document.getElementById(STYLE_TAG_ID)) {
     return;
   }
+
+  const style = document.createElement("style");
+  style.id = STYLE_TAG_ID;
+  style.textContent = `
+    #${BANNER_ROOT_ID} {
+      position: fixed;
+      inset: 0;
+      z-index: 2147483647;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    #${BANNER_ROOT_ID} * {
+      box-sizing: border-box;
+    }
+
+    .focusguard-banner__backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(12, 18, 31, 0.72);
+      backdrop-filter: blur(6px);
+    }
+
+    .focusguard-banner__panel {
+      position: relative;
+      width: min(92vw, 420px);
+      pointer-events: auto;
+      background: linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.92));
+      border-radius: 22px;
+      padding: 28px 26px;
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.45);
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      color: #e2e8f0;
+    }
+
+    .focusguard-banner__header {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .focusguard-banner__badge {
+      align-self: flex-start;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: rgba(96, 165, 250, 0.22);
+      color: #bfdbfe;
+      font-size: 0.75rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .focusguard-banner__title {
+      margin: 0;
+      font-size: 1.6rem;
+      line-height: 1.35;
+      color: #ffffff;
+    }
+
+    .focusguard-banner__message {
+      margin: 0;
+      color: #cbd5f5;
+      font-size: 1rem;
+      line-height: 1.5;
+    }
+
+    .focusguard-banner__quote {
+      margin: 0;
+      padding-left: 14px;
+      border-left: 3px solid rgba(148, 163, 184, 0.5);
+      color: #a5b4fc;
+      font-size: 0.95rem;
+      line-height: 1.5;
+      font-style: italic;
+    }
+
+    .focusguard-countdown {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      background: rgba(15, 23, 42, 0.55);
+      border-radius: 16px;
+      padding: 14px 16px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+    }
+
+    .focusguard-countdown__label {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: rgba(148, 163, 184, 0.9);
+      font-weight: 600;
+    }
+
+    .focusguard-countdown__value {
+      font-size: 2.4rem;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+
+    .focusguard-progress {
+      position: relative;
+      height: 6px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(148, 163, 184, 0.3);
+    }
+
+    .focusguard-progress__bar {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, #60a5fa, #a855f7);
+      transition: width 0.4s ease;
+    }
+
+    .focusguard-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .focusguard-actions__hint {
+      margin: 0;
+      color: rgba(203, 213, 225, 0.85);
+      font-size: 0.88rem;
+      flex: 1 1 180px;
+      line-height: 1.4;
+    }
+
+    .focusguard-actions__button {
+      border: none;
+      border-radius: 999px;
+      padding: 12px 20px;
+      background: linear-gradient(135deg, #f97316, #ef4444);
+      color: #fff;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+    }
+
+    .focusguard-actions__button[disabled] {
+      background: rgba(148, 163, 184, 0.45);
+      cursor: not-allowed;
+      box-shadow: none;
+      filter: none;
+    }
+
+    .focusguard-actions__button:not([disabled]):hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 28px rgba(249, 115, 22, 0.3);
+      filter: brightness(1.05);
+    }
+  `;
+
+  document.head.appendChild(style);
+};
+
+const destroyBanner = () => {
+  if (activeCleanup) {
+    activeCleanup();
+    activeCleanup = null;
+  }
+  activeRoot = null;
+};
+
+const createBanner = async () => {
+  if (activeRoot) {
+    return;
+  }
+
+  ensureBannerStyles();
 
   if (!document.body) {
     document.addEventListener("DOMContentLoaded", createBanner, { once: true });
     return;
   }
 
-  const overlay = document.createElement("div");
-  overlay.id = BANNER_ID;
-  overlay.setAttribute(
-    "style",
-    [
-      "position: fixed",
-      "inset: 0",
-      "background: rgba(0, 0, 0, 0.65)",
-      "display: flex",
-      "align-items: center",
-      "justify-content: center",
-      "z-index: 2147483647",
-      "font-family: 'Roboto', Arial, sans-serif",
-      "color: #111",
-      "padding: 16px",
-      "box-sizing: border-box"
-    ].join("; ")
-  );
+  const container = document.createElement("div");
+  container.id = BANNER_ROOT_ID;
+  document.body.appendChild(container);
+  activeRoot = container;
 
-  const card = document.createElement("div");
-  card.setAttribute(
-    "style",
-    [
-      "background: #fff",
-      "border-radius: 16px",
-      "box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35)",
-      "max-width: 420px",
-      "width: 100%",
-      "text-align: center",
-      "padding: 32px 28px",
-      "position: relative"
-    ].join("; ")
-  );
+  try {
+    const { computed, createApp, h, onMounted, ref } = await import(
+      chrome.runtime.getURL("libs/mini-vue.js")
+    );
 
-  const title = document.createElement("h2");
-  title.textContent = "Respira y recupera tu enfoque";
-  title.setAttribute(
-    "style",
-    [
-      "margin: 0 0 12px",
-      "font-size: 22px",
-      "font-weight: 700",
-      "color: #c62828"
-    ].join("; ")
-  );
+    const MOTIVATIONAL_MESSAGES = [
+      {
+        headline: "Respira y recupera tu enfoque",
+        message: "Regresa a tu intención original y elige tu siguiente paso con calma.",
+        tip: "Solo 30 segundos separan una distracción de una decisión consciente."
+      },
+      {
+        headline: "Tu energía es valiosa",
+        message: "Convierte este alto en un recordatorio de por qué comenzaste hoy.",
+        tip: "Enfócate en una acción pequeña que puedas completar al salir de YouTube."
+      },
+      {
+        headline: "Lo importante sigue esperando",
+        message: "Haz una pausa profunda y visualiza el avance que quieres lograr hoy.",
+        tip: "Un respiro ahora multiplica tu claridad cuando retomes tu tarea principal."
+      }
+    ];
 
-  const message = document.createElement("p");
-  message.textContent = "Recuerda tu objetivo y avanza un paso a la vez.";
-  message.setAttribute(
-    "style",
-    [
-      "margin: 0 0 20px",
-      "font-size: 16px",
-      "line-height: 1.5",
-      "color: #333"
-    ].join("; ")
-  );
+    const selection =
+      MOTIVATIONAL_MESSAGES[Math.floor(Math.random() * MOTIVATIONAL_MESSAGES.length)];
 
-  const countdown = document.createElement("div");
-  countdown.setAttribute(
-    "style",
-    [
-      "font-size: 24px",
-      "font-weight: 600",
-      "margin-bottom: 24px",
-      "color: #111"
-    ].join("; ")
-  );
+    const totalSeconds = Math.round(LOCK_DURATION_MS / 1000);
+    let intervalId = null;
+    let autoCloseId = null;
 
-  const closeButton = document.createElement("button");
-  closeButton.textContent = "Cerrar";
-  closeButton.disabled = true;
-  closeButton.setAttribute(
-    "style",
-    [
-      "padding: 10px 24px",
-      "font-size: 16px",
-      "border-radius: 999px",
-      "border: none",
-      "background: #bdbdbd",
-      "color: #fff",
-      "cursor: not-allowed",
-      "transition: background 0.3s, cursor 0.3s"
-    ].join("; ")
-  );
+    const cleanup = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+      if (autoCloseId) {
+        clearTimeout(autoCloseId);
+        autoCloseId = null;
+      }
+      container.remove();
+      if (activeRoot === container) {
+        activeRoot = null;
+        activeCleanup = null;
+      }
+    };
 
-  let remaining = LOCK_DURATION_MS / 1000;
-  const updateCountdown = () => {
-    if (remaining > 0) {
-      countdown.textContent = `Cuenta regresiva: ${remaining}s`;
-    } else {
-      countdown.textContent = "Cuenta regresiva finalizada";
-    }
-  };
+    const App = {
+      setup() {
+        const remaining = ref(totalSeconds);
+        const isLocked = computed(() => remaining.value > 0);
+        const progress = computed(() => {
+          const completed = totalSeconds - remaining.value;
+          return (completed / totalSeconds) * 100;
+        });
+        const progressStyle = computed(() => ({
+          width: `${Math.min(100, Math.max(0, progress.value))}%`
+        }));
+        const statusLabel = computed(() =>
+          remaining.value > 0 ? "Cuenta regresiva" : "Listo para continuar"
+        );
+        const countdownLabel = computed(() => `${Math.max(0, remaining.value)}s`);
 
-  updateCountdown();
+        const closeBanner = () => {
+          if (isLocked.value) {
+            return;
+          }
+          cleanup();
+        };
 
-  const intervalId = setInterval(() => {
-    remaining -= 1;
-    if (remaining > 0) {
-      updateCountdown();
-      return;
-    }
+        onMounted(() => {
+          intervalId = setInterval(() => {
+            if (remaining.value <= 0) {
+              remaining.value = 0;
+              if (intervalId) {
+                clearInterval(intervalId);
+                intervalId = null;
+              }
+              if (!autoCloseId) {
+                autoCloseId = setTimeout(() => {
+                  if (activeRoot === container) {
+                    cleanup();
+                  }
+                }, 8_000);
+              }
+              return;
+            }
+            remaining.value -= 1;
+          }, 1_000);
+        });
 
-    clearInterval(intervalId);
-    updateCountdown();
-    closeButton.disabled = false;
-    closeButton.style.background = "#d32f2f";
-    closeButton.style.cursor = "pointer";
-    closeButton.style.boxShadow = "0 8px 20px rgba(211, 47, 47, 0.35)";
-  }, 1_000);
+        return {
+          headline: ref(selection.headline),
+          message: ref(selection.message),
+          tip: ref(selection.tip),
+          statusLabel,
+          countdownLabel,
+          progressStyle,
+          isLocked,
+          closeBanner
+        };
+      },
+      render(ctx, createElement) {
+        return createElement("div", { class: "focusguard-banner" }, [
+          createElement("div", { class: "focusguard-banner__backdrop" }),
+          createElement("section", { class: "focusguard-banner__panel" }, [
+            createElement("header", { class: "focusguard-banner__header" }, [
+              createElement("span", { class: "focusguard-banner__badge" }, "Alerta de enfoque"),
+              createElement("h2", { class: "focusguard-banner__title" }, ctx.headline)
+            ]),
+            createElement("p", { class: "focusguard-banner__message" }, ctx.message),
+            createElement(
+              "blockquote",
+              { class: "focusguard-banner__quote" },
+              `“${ctx.tip}”`
+            ),
+            createElement("div", { class: "focusguard-countdown" }, [
+              createElement("span", { class: "focusguard-countdown__label" }, ctx.statusLabel),
+              createElement("span", { class: "focusguard-countdown__value" }, ctx.countdownLabel)
+            ]),
+            createElement("div", { class: "focusguard-progress" }, [
+              createElement("div", {
+                class: "focusguard-progress__bar",
+                style: ctx.progressStyle
+              })
+            ]),
+            createElement("div", { class: "focusguard-actions" }, [
+              createElement(
+                "p",
+                { class: "focusguard-actions__hint" },
+                ctx.isLocked
+                  ? "Aprovecha estos segundos para respirar profundamente."
+                  : "Elige conscientemente si continuar o regresar a tu objetivo principal."
+              ),
+              createElement(
+                "button",
+                {
+                  class: "focusguard-actions__button",
+                  disabled: ctx.isLocked,
+                  onClick: ctx.closeBanner
+                },
+                ctx.isLocked ? "Espera..." : "Seguir enfocado"
+              )
+            ])
+          ])
+        ]);
+      }
+    };
 
-  closeButton.addEventListener("click", () => {
-    if (closeButton.disabled) {
-      return;
-    }
-    clearInterval(intervalId);
-    overlay.remove();
-  });
-
-  card.appendChild(title);
-  card.appendChild(message);
-  card.appendChild(countdown);
-  card.appendChild(closeButton);
-  overlay.appendChild(card);
-
-  document.body.appendChild(overlay);
+    createApp(App).mount(container);
+    activeCleanup = cleanup;
+  } catch (error) {
+    console.error("No se pudo cargar el banner de FocusGuard", error);
+    container.remove();
+    activeRoot = null;
+  }
 };
 
 const maybeShowBanner = () => {
@@ -193,6 +384,12 @@ const scheduleBanner = () => {
 
 scheduleBanner();
 
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    scheduleBanner();
+  }
+});
+
 new MutationObserver(() => {
   const url = location.href;
   if (url === lastUrl) {
@@ -200,4 +397,5 @@ new MutationObserver(() => {
   }
   lastUrl = url;
   scheduleBanner();
+  destroyBanner();
 }).observe(document, { subtree: true, childList: true });
