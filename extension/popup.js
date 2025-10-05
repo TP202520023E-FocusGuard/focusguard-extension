@@ -1,4 +1,4 @@
-import { computed, createApp, h, onMounted, ref } from "./libs/mini-vue.js";
+import { computed, createApp, onMounted, ref } from "./libs/mini-vue.js";
 
 const CATEGORIES = {
   "youtube.com": "Doble filo",
@@ -315,7 +315,7 @@ const App = {
         "a",
         {
           class: "dashboard-link",
-          href: "https://www.imdb.com/es/list/ls074769189/",
+          href: "http://localhost:5173",
           target: "_blank",
           rel: "noopener noreferrer"
         },
