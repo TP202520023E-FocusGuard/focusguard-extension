@@ -1,5 +1,6 @@
 import { computed, createApp, onMounted, ref } from "./libs/mini-vue.js";
 
+// TODO: Enlazar con la tabla de Sitios Web
 const CATEGORIES = {
   "youtube.com": "Doble filo",
   "facebook.com": "Procrastinación",
@@ -7,16 +8,20 @@ const CATEGORIES = {
   "google.com": "Neutral"
 };
 
+// TODO: Investigar como identificar palabras de ocio con la BD
 const LEISURE_KEYWORDS = ["VEGETTA777", "VEGETTA", "MINECRAFT"];
 const BREAK_TIME_MINUTES = 60;
 
+// Obtenemos el URL sin el www.
 const normaliseHost = (hostname = "") => hostname.replace(/^www\./, "").toLowerCase();
 
+// Obtenemos la categoría asociada a la web consultada
 const getCategory = (hostname) => {
   const normalised = normaliseHost(hostname);
   return CATEGORIES[normalised] ?? "Sin categoría";
 };
 
+// Se valida si el texto enviado contiene palabras de ocio o no
 const includesLeisureKeyword = (text) => {
   if (!text) {
     return false;
@@ -41,15 +46,17 @@ const getPageMetadata = async (tabId) => {
       }
     });
     return result?.result ?? { title: "", metaDescription: "" };
+
   } catch (error) {
     console.error("Error al obtener metadatos de la página", error);
     return { title: "", metaDescription: "" };
   }
 };
 
+// Clasificamos si el contenido es de OCIO o NO OCIO
 const resolveLeisureClassification = async (tabId, category) => {
   if (category !== "Doble filo") {
-    return "No ocio";
+    return "No ocio"; // TODO: Actualizar para el caso en que sea PROCRASTINATIVA la categoría
   }
 
   const { title, metaDescription } = await getPageMetadata(tabId);
@@ -57,6 +64,7 @@ const resolveLeisureClassification = async (tabId, category) => {
   return hasKeyword ? "Ocio" : "No ocio";
 };
 
+// Elemento HTML compartido para la sección Categoría, Clasificación y Descanso
 const StatHighlight = {
   setup(props) {
     return { props };
@@ -77,6 +85,7 @@ const StatHighlight = {
   }
 };
 
+// Elemento HTML para la sección de Información del sitio
 const InfoBlock = {
   setup(props) {
     return { props };
@@ -98,6 +107,11 @@ const InfoBlock = {
 
 const App = {
   setup() {
+    /* Averigua si ¿Soy una extensión de Chrome?
+     * 1. Comprueba si existe el objeto global chrome
+     * 2. Comprueba si existen funciones de API de Chrome (Estas funciones solo están disponibles
+     *    para una extensión, no para las páginas web normales)
+     */
     const isBrowserContext =
       typeof chrome !== "undefined" && Boolean(chrome.tabs?.query) && Boolean(chrome.scripting);
 
@@ -115,6 +129,7 @@ const App = {
     const errorMessage = ref("");
     const manualHelper = ref("");
 
+    // Muestra si la clasificación fue corregida o no
     const classificationLabel = computed(() => {
       const base = classification.value;
       if (base === "-") {
@@ -123,6 +138,7 @@ const App = {
       return manualOverride.value ? `${base} · corregido` : base;
     });
 
+    // Elige el color de la etiqueta del tipo de contenido
     const classificationTone = computed(() => {
       const value = classification.value;
       if (value === "Ocio") {
@@ -134,6 +150,7 @@ const App = {
       return "neutral";
     });
 
+    // Elige el color de la etiqueta del tipo de sitio web
     const categoryTone = computed(() => {
       const value = category.value.toLowerCase();
       if (value.includes("productividad")) {
@@ -148,12 +165,16 @@ const App = {
       return "neutral";
     });
 
+    // TODO: Posible cambio para dar feedback al contenido neutral
+    // Botón de feedback inhabilidado si el contenido es neutral
     const manualButtonDisabled = computed(() => classification.value === "-");
 
+    // Mensaje del botón de feedback
     const manualButtonLabel = computed(() =>
       manualOverride.value ? "Marcar como ocio" : "Marcar como no ocio"
     );
 
+    // Mini mensaje que acompaña a la sección de tipo de contenido
     const manualHint = computed(() => {
       if (classification.value === "-") {
         return "Esperando datos de la pestaña activa...";
@@ -164,10 +185,12 @@ const App = {
       return manualHelper.value;
     });
 
+    // Se obtienen los datos de la ventana actual
     const resolveActiveTab = async () => {
       try {
+        // Se usa la API de Chrome para saber qué pestaña está activa y enfocada
         const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-        if (!activeTab?.url) {
+        if (!activeTab?.url) { // Verifica si tiene una URL válida
           errorMessage.value = "No se pudo identificar la pestaña actual.";
           domain.value = "-";
           category.value = "Sin datos";
@@ -175,15 +198,20 @@ const App = {
           return;
         }
 
+        // Obtenemos dominio
         const currentUrl = new URL(activeTab.url);
         const hostname = currentUrl.hostname;
         domain.value = hostname;
 
+        // Obtenemos categoría del sitio
         const tabCategory = getCategory(hostname);
         category.value = tabCategory;
 
+        // Obtenemos si el contenido es de ocio o no
         const resolved = await resolveLeisureClassification(activeTab.id, tabCategory);
         classification.value = resolved;
+
+        // Actualizamos los minimensajes del popup
         manualOverride.value = false;
         manualHelper.value =
           resolved === "Ocio"
@@ -200,6 +228,7 @@ const App = {
       }
     };
 
+    // Cambio manual de la clasificación del contenido
     const toggleClassification = () => {
       if (classification.value === "-") {
         return;
@@ -261,11 +290,7 @@ const App = {
       createElement(InfoBlock, {
         icon: "🌐",
         title: ctx.domain,
-        description: ctx.isLoading
-          ? "Analizando la pestaña activa..."
-          : ctx.errorMessage
-            ? ctx.errorMessage
-            : "Este es el sitio que estás visitando en este momento."
+        description: ctx.isLoading ? "Analizando la pestaña activa..." : ctx.errorMessage ? ctx.errorMessage : "Este es el sitio que estás visitando en este momento."
       })
     ]);
 
