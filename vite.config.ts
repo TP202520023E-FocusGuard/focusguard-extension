@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { basename, resolve } from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
 
 import { defineConfig } from 'vite'
@@ -16,7 +16,7 @@ export default defineConfig({
       apply: 'build',
       generateBundle() {
         const extensionRoot = fileURLToPath(new URL('./extension', import.meta.url))
-        const filesToCopy = ['manifest.json', 'content.js']
+        const filesToCopy = ['manifest.json', 'popup.html', 'popup.css']
 
         for (const fileName of filesToCopy) {
           const filePath = resolve(extensionRoot, fileName)
@@ -43,23 +43,49 @@ export default defineConfig({
   build: {
     outDir: 'dist-extension',
     emptyOutDir: true,
-    rollupOptions: {
-      input: {
-        popup: fileURLToPath(new URL('./extension/popup.html', import.meta.url)),
+    cssCodeSplit: false,
+    lib: {
+      entry: {
+        popup: fileURLToPath(new URL('./extension/popup.js', import.meta.url)),
+        content: fileURLToPath(new URL('./extension/content.js', import.meta.url)),
       },
+      formats: ['es'],
+    },
+    rollupOptions: {
+      external: [],
       output: {
-        entryFileNames: 'assets/[name].js',
+        entryFileNames: ({ name }) => {
+          if (name === 'popup') {
+            return 'popup.js'
+          }
+
+          if (name === 'content') {
+            return 'content.js'
+          }
+
+          return 'assets/[name].js'
+        },
         chunkFileNames: 'assets/[name]-[hash].js',
-        assetFileNames: ({ name }) => {
-          if (!name) {
+        assetFileNames: (assetInfo) => {
+          if (!assetInfo.name) {
             return 'assets/[name][extname]'
           }
 
-          if (name.endsWith('.css')) {
-            return 'assets/[name]'
+          const assetBaseName = basename(assetInfo.name)
+
+          if (assetBaseName.endsWith('.css')) {
+            if (assetBaseName === 'popup.css') {
+              return 'popup.css'
+            }
+
+            if (assetBaseName === 'content.css') {
+              return 'content.css'
+            }
+
+            return `assets/${assetBaseName}`
           }
 
-          return 'assets/[name][extname]'
+          return `assets/${assetBaseName}`
         },
       },
     },
