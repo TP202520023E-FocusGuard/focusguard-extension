@@ -45,8 +45,6 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       'process.env.NODE_ENV': JSON.stringify(nodeEnv),
-      'process.env': `({ NODE_ENV: ${JSON.stringify(nodeEnv)} })`,
-      process: `({ env: { NODE_ENV: ${JSON.stringify(nodeEnv)} } })`,
     },
     build: {
       outDir: 'dist-extension',
@@ -60,6 +58,23 @@ export default defineConfig(({ mode }) => {
         formats: ['es'],
       },
       rollupOptions: {
+        plugins: [
+          {
+            name: 'focusguard-process-shim',
+            renderChunk(code) {
+              if (!code.includes('process.')) {
+                return null
+              }
+
+              const shim = `const process = globalThis.process ?? { env: { NODE_ENV: ${JSON.stringify(nodeEnv)} } };\n`
+
+              return {
+                code: `${shim}${code}`,
+                map: null,
+              }
+            },
+          },
+        ],
         external: [],
         output: {
           entryFileNames: ({ name }) => {
