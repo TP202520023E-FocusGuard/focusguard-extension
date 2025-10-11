@@ -208,7 +208,7 @@ const createBanner = async () => {
 
   try {
     const { computed, createApp, onMounted, ref } = await import(
-      chrome.runtime.getURL("libs/mini-vue.js")
+      "https://unpkg.com/vue@3/dist/vue.esm-browser.js"
     );
 
     const MOTIVATIONAL_MESSAGES = [

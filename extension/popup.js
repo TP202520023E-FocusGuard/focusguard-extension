@@ -1,4 +1,9 @@
-import { computed, createApp, onMounted, ref } from "./libs/mini-vue.js";
+import {
+  computed,
+  createApp,
+  onMounted,
+  ref
+} from "https://unpkg.com/vue@3/dist/vue.esm-browser.js";
 
 // TODO: Enlazar con la tabla de Sitios Web
 const CATEGORIES = {
