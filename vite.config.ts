@@ -7,87 +7,96 @@ import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [
-    vue(),
-    vueDevTools(),
-    {
-      name: 'focusguard-copy-extension-assets',
-      apply: 'build',
-      generateBundle() {
-        const extensionRoot = fileURLToPath(new URL('./extension', import.meta.url))
-        const filesToCopy = ['manifest.json', 'popup.html', 'popup.css']
+export default defineConfig(({ mode }) => {
+  const nodeEnv = mode === 'development' ? 'development' : 'production'
 
-        for (const fileName of filesToCopy) {
-          const filePath = resolve(extensionRoot, fileName)
+  return {
+    plugins: [
+      vue(),
+      vueDevTools(),
+      {
+        name: 'focusguard-copy-extension-assets',
+        apply: 'build',
+        generateBundle() {
+          const extensionRoot = fileURLToPath(new URL('./extension', import.meta.url))
+          const filesToCopy = ['manifest.json', 'popup.html', 'popup.css']
 
-          if (!existsSync(filePath)) {
-            continue
-          }
+          for (const fileName of filesToCopy) {
+            const filePath = resolve(extensionRoot, fileName)
 
-          const source = readFileSync(filePath)
-          this.emitFile({
-            type: 'asset',
-            fileName,
-            source,
-          })
-        }
-      },
-    },
-  ],
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url))
-    },
-  },
-  build: {
-    outDir: 'dist-extension',
-    emptyOutDir: true,
-    cssCodeSplit: false,
-    lib: {
-      entry: {
-        popup: fileURLToPath(new URL('./extension/popup.js', import.meta.url)),
-        content: fileURLToPath(new URL('./extension/content.js', import.meta.url)),
-      },
-      formats: ['es'],
-    },
-    rollupOptions: {
-      external: [],
-      output: {
-        entryFileNames: ({ name }) => {
-          if (name === 'popup') {
-            return 'popup.js'
-          }
-
-          if (name === 'content') {
-            return 'content.js'
-          }
-
-          return 'assets/[name].js'
-        },
-        chunkFileNames: 'assets/[name]-[hash].js',
-        assetFileNames: (assetInfo) => {
-          if (!assetInfo.name) {
-            return 'assets/[name][extname]'
-          }
-
-          const assetBaseName = basename(assetInfo.name)
-
-          if (assetBaseName.endsWith('.css')) {
-            if (assetBaseName === 'popup.css') {
-              return 'popup.css'
+            if (!existsSync(filePath)) {
+              continue
             }
 
-            if (assetBaseName === 'content.css') {
-              return 'content.css'
+            const source = readFileSync(filePath)
+            this.emitFile({
+              type: 'asset',
+              fileName,
+              source,
+            })
+          }
+        },
+      },
+    ],
+    resolve: {
+      alias: {
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
+      },
+    },
+    define: {
+      'process.env.NODE_ENV': JSON.stringify(nodeEnv),
+      'process.env': `({ NODE_ENV: ${JSON.stringify(nodeEnv)} })`,
+      process: `({ env: { NODE_ENV: ${JSON.stringify(nodeEnv)} } })`,
+    },
+    build: {
+      outDir: 'dist-extension',
+      emptyOutDir: true,
+      cssCodeSplit: false,
+      lib: {
+        entry: {
+          popup: fileURLToPath(new URL('./extension/popup.js', import.meta.url)),
+          content: fileURLToPath(new URL('./extension/content.js', import.meta.url)),
+        },
+        formats: ['es'],
+      },
+      rollupOptions: {
+        external: [],
+        output: {
+          entryFileNames: ({ name }) => {
+            if (name === 'popup') {
+              return 'popup.js'
+            }
+
+            if (name === 'content') {
+              return 'content.js'
+            }
+
+            return 'assets/[name].js'
+          },
+          chunkFileNames: 'assets/[name]-[hash].js',
+          assetFileNames: (assetInfo) => {
+            if (!assetInfo.name) {
+              return 'assets/[name][extname]'
+            }
+
+            const assetBaseName = basename(assetInfo.name)
+
+            if (assetBaseName.endsWith('.css')) {
+              if (assetBaseName === 'popup.css') {
+                return 'popup.css'
+              }
+
+              if (assetBaseName === 'content.css') {
+                return 'content.css'
+              }
+
+              return `assets/${assetBaseName}`
             }
 
             return `assets/${assetBaseName}`
-          }
-
-          return `assets/${assetBaseName}`
+          },
         },
       },
     },
-  },
+  }
 })
