@@ -74,6 +74,73 @@ export default defineConfig(({ mode }) => {
               }
             },
           },
+          {
+            name: 'focusguard-inline-content-imports',
+            apply: 'build',
+            generateBundle(_options, bundle) {
+              const escapeRegex = (value: string) => value.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
+
+              const convertExportsToAssignments = (chunkCode: string) => {
+                return chunkCode
+                  .replace(/export\s*\{\s*([^}]+)\s*\};?/g, (_match, exportsBlock: string) => {
+                    return exportsBlock
+                      .split(',')
+                      .map((binding) => {
+                        const trimmed = binding.trim()
+
+                        if (!trimmed) {
+                          return ''
+                        }
+
+                        const [original, alias] = trimmed.split(/\s+as\s+/)
+
+                        if (alias) {
+                          return `const ${alias} = ${original};`
+                        }
+
+                        return `const ${original} = ${original};`
+                      })
+                      .filter(Boolean)
+                      .join('\n')
+                  })
+                  .replace(/export\s+default\s+([A-Za-z0-9_$]+)/g, 'const __default__ = $1')
+              }
+
+              for (const bundleItem of Object.values(bundle)) {
+                if (bundleItem.type !== 'chunk' || bundleItem.name !== 'content') {
+                  continue
+                }
+
+                const chunk = bundleItem
+                const importsToInline = new Set(chunk.imports)
+
+                for (const importedFileName of importsToInline) {
+                  if (!importedFileName.endsWith('.js')) {
+                    continue
+                  }
+
+                  const imported = bundle[importedFileName]
+
+                  if (!imported || imported.type !== 'chunk') {
+                    continue
+                  }
+
+                  const importPath = `./${importedFileName}`
+                  const importPattern = new RegExp(
+                    `(^|\n)\s*import[^;]*?from\s+(["'])${escapeRegex(importPath)}\\2;?\n?`,
+                    'g',
+                  )
+
+                  chunk.code = chunk.code.replace(importPattern, '$1')
+                  chunk.code = `${convertExportsToAssignments(imported.code)}\n${chunk.code}`
+
+                  chunk.imports = chunk.imports.filter((name) => name !== importedFileName)
+                  chunk.dynamicImports = chunk.dynamicImports.filter((name) => name !== importedFileName)
+
+                }
+              }
+            },
+          },
         ],
         external: [],
         output: {
