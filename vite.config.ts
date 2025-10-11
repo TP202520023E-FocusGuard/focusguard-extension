@@ -78,10 +78,16 @@ export default defineConfig(({ mode }) => {
             name: 'focusguard-inline-content-imports',
             apply: 'build',
             generateBundle(_options, bundle) {
+              const extensionRoot = fileURLToPath(new URL('./extension', import.meta.url))
+              const contentEntryId = resolve(extensionRoot, 'content.js')
+
               const escapeRegex = (value: string) => value.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
 
               const convertExportsToAssignments = (chunkCode: string) => {
                 return chunkCode
+                  .replace(/export\s+default\s+([A-Za-z0-9_$]+)/g, 'const __default__ = $1;')
+                  .replace(/export\s+default\s*(?=function|class)/g, '')
+                  .replace(/export\s+(const|let|var|function|class)\s+/g, '$1 ')
                   .replace(/export\s*\{\s*([^}]+)\s*\};?/g, (_match, exportsBlock: string) => {
                     return exportsBlock
                       .split(',')
@@ -103,19 +109,13 @@ export default defineConfig(({ mode }) => {
                       .filter(Boolean)
                       .join('\n')
                   })
-                  .replace(/export\s+default\s+([A-Za-z0-9_$]+)/g, 'const __default__ = $1')
               }
 
-              for (const bundleItem of Object.values(bundle)) {
-                if (bundleItem.type !== 'chunk' || bundleItem.name !== 'content') {
-                  continue
-                }
+              const inlineChunkDependencies = (chunk, seen = new Set<string>()) => {
+                let prefix = ''
 
-                const chunk = bundleItem
-                const importsToInline = new Set(chunk.imports)
-
-                for (const importedFileName of importsToInline) {
-                  if (!importedFileName.endsWith('.js')) {
+                for (const importedFileName of [...chunk.imports]) {
+                  if (!importedFileName.endsWith('.js') || seen.has(importedFileName)) {
                     continue
                   }
 
@@ -125,19 +125,66 @@ export default defineConfig(({ mode }) => {
                     continue
                   }
 
-                  const importPath = `./${importedFileName}`
+                  seen.add(importedFileName)
+
+                  prefix += inlineChunkDependencies(imported, seen)
+
                   const importPattern = new RegExp(
-                    `(^|\n)\s*import[^;]*?from\s+(["'])${escapeRegex(importPath)}\\2;?\n?`,
+                    `(^|[\r\n])\s*import[^;]*?from\s+(["'])\.?/?${escapeRegex(importedFileName)}\\2;?`,
                     'g',
                   )
 
                   chunk.code = chunk.code.replace(importPattern, '$1')
-                  chunk.code = `${convertExportsToAssignments(imported.code)}\n${chunk.code}`
+                  prefix += `${convertExportsToAssignments(imported.code)}\n`
 
                   chunk.imports = chunk.imports.filter((name) => name !== importedFileName)
                   chunk.dynamicImports = chunk.dynamicImports.filter((name) => name !== importedFileName)
 
+                  delete bundle[importedFileName]
                 }
+
+                return prefix
+              }
+
+              for (const bundleItem of Object.values(bundle)) {
+                if (bundleItem.type !== 'chunk') {
+                  continue
+                }
+
+                if (bundleItem.facadeModuleId !== contentEntryId) {
+                  continue
+                }
+
+                const prefix = inlineChunkDependencies(bundleItem)
+
+                if (prefix) {
+                  bundleItem.code = `${prefix}${bundleItem.code}`
+                }
+
+                bundleItem.code = bundleItem.code.replace(
+                  /(^|[\r\n])\s*import\s+(['"])(\.?\/[^'";]+\.css)\2;?/g,
+                  (_fullMatch, linePrefix: string, _quote: string, importPath: string) => {
+                    const normalizedPath = importPath.replace(/^\.\/?/, '')
+                    const cssAsset = bundle[normalizedPath]
+
+                    if (!cssAsset || cssAsset.type !== 'asset') {
+                      return linePrefix
+                    }
+
+                    const cssSource = typeof cssAsset.source === 'string'
+                      ? cssAsset.source
+                      : Buffer.from(cssAsset.source).toString('utf8')
+
+                    const styleInjection =
+                      "(() => {\n" +
+                      "  const style = document.createElement('style');\n" +
+                      `  style.textContent = ${JSON.stringify(cssSource)};\n` +
+                      "  document.head.appendChild(style);\n" +
+                      "})();\n"
+
+                    return `${linePrefix}${styleInjection}`
+                  },
+                )
               }
             },
           },
