@@ -86,7 +86,7 @@ export default defineConfig({
       apply: 'build',
       generateBundle() {
         const extensionRoot = fileURLToPath(new URL('./extension', import.meta.url))
-        const filesToCopy = ['manifest.json', 'popup.html', 'popup.css']
+        const filesToCopy = ['manifest.json', 'popup.html', 'popup.css', 'libs/mini-vue.js']
 
         for (const fileName of filesToCopy) {
           const filePath = resolve(extensionRoot, fileName)
