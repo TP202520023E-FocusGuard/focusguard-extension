@@ -48,7 +48,7 @@ const sendDomainToBackend = async (domain) => {
       })
     });
 
-    if (!response.ok) {
+    if (!response.ok && response.status !== 409) {
       throw new Error(`Error ${response.status}: ${response.statusText}`);
     }
 
