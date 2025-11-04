@@ -11,6 +11,8 @@ const CATEGORIES = {
 // TODO: Investigar como identificar palabras de ocio con la BD
 const LEISURE_KEYWORDS = ["VEGETTA777", "VEGETTA", "MINECRAFT"];
 const BREAK_TIME_MINUTES = 60;
+// const BACKEND_ENDPOINT = "https://tu-backend.com/api/registrar-dominio";
+const BACKEND_ENDPOINT = "http://localhost:8000/api/v1/websites";
 
 // Obtenemos el URL sin el www.
 const normaliseHost = (hostname = "") => hostname.replace(/^www\./, "").toLowerCase();
@@ -28,6 +30,34 @@ const includesLeisureKeyword = (text) => {
   }
   const upper = text.toUpperCase();
   return LEISURE_KEYWORDS.some((keyword) => upper.includes(keyword));
+};
+
+const sendDomainToBackend = async (domain) => {
+  if (!domain || typeof fetch === "undefined") {
+    return;
+  }
+
+  try {
+    const response = await fetch(BACKEND_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        dominio: domain
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Error ${response.status}: ${response.statusText}`);
+    }
+
+    // Se ignora la respuesta del backend, pero se mantiene la promesa para posibles usos futuros.
+    return response;
+  } catch (error) {
+    console.error("Error al enviar el dominio al backend", error);
+    throw error;
+  }
 };
 
 const getPageMetadata = async (tabId) => {
@@ -188,6 +218,7 @@ const App = {
     // Se obtienen los datos de la ventana actual
     const resolveActiveTab = async () => {
       try {
+        errorMessage.value = "";
         // Se usa la API de Chrome para saber qué pestaña está activa y enfocada
         const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
         if (!activeTab?.url) { // Verifica si tiene una URL válida
@@ -203,6 +234,8 @@ const App = {
         const hostname = currentUrl.hostname;
         domain.value = hostname;
 
+        // TODO: Registramos el dominio en la tabla "sitios_web" si es que no existe
+
         // Obtenemos categoría del sitio
         const tabCategory = getCategory(hostname);
         category.value = tabCategory;
@@ -210,6 +243,13 @@ const App = {
         // Obtenemos si el contenido es de ocio o no
         const resolved = await resolveLeisureClassification(activeTab.id, tabCategory);
         classification.value = resolved;
+
+        try {
+          await sendDomainToBackend(hostname);
+        } catch (backendError) {
+          errorMessage.value =
+            "Se identificó la pestaña, pero no se pudo comunicar con el servidor.";
+        }
 
         // Actualizamos los minimensajes del popup
         manualOverride.value = false;
