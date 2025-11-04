@@ -32,7 +32,7 @@ const sendDomainToBackend = async (domain) => {
       throw new Error(`Error ${response.status}: ${response.statusText}`);
     }
   } catch (error) {
-    console.error("FocusGuard: Error al enviar el dominio al backend", error);
+    console.error("Error al enviar el dominio al backend", error);
   }
 };
 
@@ -45,7 +45,7 @@ const registerDomainForTab = async (tabId, url) => {
   try {
     hostname = new URL(url).hostname;
   } catch (error) {
-    console.error("FocusGuard: No se pudo analizar la URL de la pestaña", error);
+    console.error("No se pudo analizar la URL de la pestaña", error);
     return;
   }
 
@@ -72,7 +72,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
       void registerDomainForTab(activeInfo.tabId, tab.url);
     }
   } catch (error) {
-    console.error("FocusGuard: No se pudo recuperar la pestaña activa", error);
+    console.error("No se pudo recuperar la pestaña activa", error);
   }
 });
 

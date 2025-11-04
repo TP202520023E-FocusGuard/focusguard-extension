@@ -12,7 +12,7 @@ const CATEGORIES = {
 const LEISURE_KEYWORDS = ["VEGETTA777", "VEGETTA", "MINECRAFT"];
 const BREAK_TIME_MINUTES = 60;
 // const BACKEND_ENDPOINT = "https://tu-backend.com/api/registrar-dominio";
-const BACKEND_ENDPOINT = "http://localhost:8000/api/v1/websites";
+//const BACKEND_ENDPOINT = "http://localhost:8000/api/v1/websites";
 
 // Obtenemos el URL sin el www.
 const normaliseHost = (hostname = "") => hostname.replace(/^www\./, "").toLowerCase();
@@ -31,7 +31,7 @@ const includesLeisureKeyword = (text) => {
   const upper = text.toUpperCase();
   return LEISURE_KEYWORDS.some((keyword) => upper.includes(keyword));
 };
-
+/*
 const sendDomainToBackend = async (domain) => {
   if (!domain || typeof fetch === "undefined") {
     return;
@@ -59,7 +59,7 @@ const sendDomainToBackend = async (domain) => {
     throw error;
   }
 };
-
+*/
 const getPageMetadata = async (tabId) => {
   if (typeof chrome === "undefined" || !chrome.scripting?.executeScript) {
     return { title: "", metaDescription: "" };
@@ -243,14 +243,14 @@ const App = {
         // Obtenemos si el contenido es de ocio o no
         const resolved = await resolveLeisureClassification(activeTab.id, tabCategory);
         classification.value = resolved;
-
+/*
         try {
           await sendDomainToBackend(hostname);
         } catch (backendError) {
           errorMessage.value =
             "Se identificó la pestaña, pero no se pudo comunicar con el servidor.";
         }
-
+*/
         // Actualizamos los minimensajes del popup
         manualOverride.value = false;
         manualHelper.value =
