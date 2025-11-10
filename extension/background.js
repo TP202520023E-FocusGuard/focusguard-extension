@@ -144,20 +144,26 @@ const endWebsiteVisit = async (visitId) => {
 const endVisitForTab = async (tabId) => {
   const session = tabSessions.get(tabId);
 
-  if (!session) {
-    return;
-  }
-
-  tabSessions.delete(tabId);
-
-  if (!session.visitId) {
+  // 1. Validar si hay una sesión y un visitId que cerrar.
+  if (!session || !session.visitId) {
+    // Si hay una sesión pero sin visitId (estado inválido), bórrala localmente.
+    if (session) {
+      tabSessions.delete(tabId);
+    }
     return;
   }
 
   try {
+    // 2. Intentar actualizar la base de datos (remoto) PRIMERO.
     await endWebsiteVisit(session.visitId);
+
+    // 3. ÉXITO: Solo si la BD se actualizó, borramos la sesión local.
+    tabSessions.delete(tabId);
+
   } catch (error) {
-    console.error("No se pudo actualizar la salida de la visita", error);
+    // 4. FALLO: Si la BD falla, *no* borramos la sesión local.
+    // Dejamos el error en consola. La sesión local (visitId_A) se mantiene.
+    console.error(`No se pudo actualizar la salida de la visita (VisitID: ${session.visitId}). La sesión local se reintentará luego.`, error);
   }
 };
 
@@ -177,25 +183,51 @@ const registerVisitForTab = async (tabId, url) => {
   }
 
   const domain = normaliseHost(hostname);
-  const currentSession = tabSessions.get(tabId);
+  let currentSession = tabSessions.get(tabId);
 
-  // --- Blindajes clave ---
-  if (currentSession?.visitId) {
-    // Si ya tenemos visita y es el mismo dominio, no dupliques
-    if (currentSession.domain === domain) return;
-    // Si cambia el dominio, cierra la anterior y continúa para abrir nueva
-    await endVisitForTab(tabId);
+  // --- Blindajes clave (Modificados) ---
+
+  // 1. Blindaje de Dominio: Si ya hay visita activa (visitId) para el MISMO dominio, no hacer nada.
+  if (currentSession?.visitId && currentSession.domain === domain) {
+    return;
   }
-  // -----------------------
+
+  // 2. Blindaje de Condición de Carrera:
+  // Si ya hay una sesión "pending" para este dominio, significa que ya estamos
+  // en proceso de crear una visita. Salir para evitar duplicados.
+  if (currentSession?.status === 'pending' && currentSession.domain === domain) {
+    return;
+  }
+
+  // 3. Si la sesión anterior era de un dominio diferente (y tenía visitId), ciérrala.
+  if (currentSession?.visitId && currentSession.domain !== domain) {
+    await endVisitForTab(tabId);
+    // endVisitForTab borra la sesión, así que currentSession ya no es válido localmente.
+  }
+
+  // 4. "Bloquear" la pestaña: Marcar la sesión como "pending" ANTES de cualquier await de red.
+  // Esto detendrá la Llamada 2 (de onUpdated) en el blindaje #2.
+  tabSessions.set(tabId, { domain: domain, status: 'pending', visitId: null });
+
+  // --- Fin de Blindajes ---
 
   try {
     const websiteId = await ensureWebsite(domain);
     const websiteUserId = await ensureWebsiteUser(websiteId, domain);
     const visitId = await createWebsiteVisit(websiteUserId);
 
+    // 5. "Desbloquear": Actualizar la sesión con el visitId final.
     tabSessions.set(tabId, { domain, websiteUserId, visitId });
+
   } catch (error) {
     console.error(`No se pudo registrar la visita para la pestaña ${tabId}`, error);
+
+    // 6. Limpieza en caso de error: Si falla la creación,
+    // eliminar la sesión "pending" para permitir reintentos.
+    const sessionAfterError = tabSessions.get(tabId);
+    if (sessionAfterError?.status === 'pending') {
+      tabSessions.delete(tabId);
+    }
   }
 };
 
@@ -273,6 +305,35 @@ const handleTabRemoved = async (tabId) => {
   await endVisitForTab(tabId);
 };
 
+const handleWindowFocusChanged = async (windowId) => {
+  // Ignorar si la ventana pierde el foco (ej. si windowId es chrome.windows.WINDOW_ID_NONE)
+  if (windowId === chrome.windows.WINDOW_ID_NONE) {
+    // ⚠️ Opcional: Podrías considerar aquí cerrar la visita de currentActiveTabId,
+    // pero generalmente se espera al foco de la nueva ventana.
+    return;
+  }
+
+  try {
+    // Obtener la pestaña actualmente activa en la ventana que acaba de ser enfocada
+    const tabs = await chrome.tabs.query({ active: true, windowId: windowId });
+
+    if (chrome.runtime.lastError) {
+      console.error("Error al consultar pestañas en handleWindowFocusChanged", chrome.runtime.lastError);
+      return;
+    }
+
+    const [activeTab] = tabs;
+
+    if (activeTab?.id && activeTab.id !== currentActiveTabId) {
+      // Usamos handleTabActivated para reutilizar la lógica de cierre (del ID anterior)
+      // y apertura (del ID nuevo).
+      await handleTabActivated({ tabId: activeTab.id, windowId: activeTab.windowId });
+    }
+  } catch (error) {
+    console.error("Error al manejar el cambio de foco de ventana", error);
+  }
+};
+
 const initialiseActiveTabTracking = () => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (chrome.runtime.lastError) {
@@ -304,6 +365,11 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   void handleTabRemoved(tabId);
+});
+
+// Nuevo Listener para manejar el cambio de foco de la ventana
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  void handleWindowFocusChanged(windowId);
 });
 
 initialiseActiveTabTracking();
