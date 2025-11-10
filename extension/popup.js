@@ -1,36 +1,116 @@
 import { computed, createApp, onMounted, ref } from "./libs/mini-vue.js";
 
+// Representación de la BD: CATEGORY_CATALOG, INITIAL_USERS, INITIAL_SITES, INITIAL_USER_SITES, INITIAL_VISITS
 
 const CATEGORY_CATALOG = [
   {
-    id: "sin-categoria",
-    label: "Sin categoría",
-    description: "Usa esta categoría mientras decides cómo catalogar el sitio.",
-    tone: "neutral"
+    id: 1, // ID numérico (int)
+    nombre: "Sin categoria",
+    peso: 1,
   },
   {
-    id: "neutral",
-    label: "Neutral",
-    description: "No impacta directamente tu enfoque, pero conviene monitorearlo.",
-    tone: "info"
+    id: 2,
+    nombre: "Distractivo",
+    peso: 5, // Mayor peso, implica mayor riesgo/impacto
   },
   {
-    id: "productivo",
-    label: "Productivo",
-    description: "Aporta a tus objetivos laborales o académicos.",
-    tone: "success"
+    id: 3,
+    nombre: "Doble filo",
+    peso: 3,
   },
   {
-    id: "doble-filo",
-    label: "Doble filo",
-    description: "Puede ser productivo u ocio según el contenido específico.",
-    tone: "warning"
+    id: 4,
+    nombre: "Neutral",
+    peso: 2,
   },
   {
-    id: "distractivo",
-    label: "Distractivo",
-    description: "Sabes que te desvía del objetivo principal.",
-    tone: "danger"
+    id: 5,
+    nombre: "Productivo",
+    peso: 1, // Menor peso, implica menor riesgo/mayor beneficio
+  }
+];
+
+const INITIAL_USERS = [
+  {
+    id: 1,
+    correo: "maria@focusguard.app",
+    contrasenia_hash: "hashedpassword123", // Solo para simulación
+    nombres: "María Fernanda",
+    apellidos: "Pérez Soto",
+    telefono: "987654321",
+    fecha_registro: "2024-07-10T09:30:00.000Z"
+  },
+  {
+    id: 2,
+    correo: "luis@focusguard.app",
+    contrasenia_hash: "hashedpassword456",
+    nombres: "Luis Alberto",
+    apellidos: "Gómez Salas",
+    telefono: "912345678",
+    fecha_registro: "2024-07-10T09:35:00.000Z"
+  }
+];
+
+const INITIAL_SITES = [
+  {
+    id: 1,
+    dominio: "youtube.com"
+  },
+  {
+    id: 2,
+    dominio: "notion.so"
+  },
+  {
+    id: 3,
+    dominio: "facebook.com"
+  }
+];
+
+const INITIAL_USER_SITES = [
+  {
+    id: 1, // ID del registro de asignación
+    id_usuarios: 1, // María Fernanda
+    id_sitios_web: 1, // youtube.com
+    id_categorias_web: 1, // 1: doble filo, 2: productivo, 3: distractivo
+    origen: "custom",
+  },
+  {
+    id: 2,
+    id_usuarios: 1, // María Fernanda
+    id_sitios_web: 2, // notion.so
+    id_categorias_web: 2,
+    origen: "custom",
+  },
+  {
+    id: 3,
+    id_usuarios: 2, // Luis Alberto
+    id_sitios_web: 3, // facebook.com
+    id_categorias_web: 3,
+    origen: "custom",
+  }
+];
+
+const INITIAL_VISITS = [
+  {
+    id: 1,
+    id_usuarios: 1, // María Fernanda
+    id_sitios_web_usuario: 1, // Link youtube.com de María
+    fecha_hora_ingreso: "2024-07-10T11:12:00.000Z",
+    fecha_hora_salida: "2024-07-10T11:15:00.000Z",
+  },
+  {
+    id: 2,
+    id_usuarios: 1, // María Fernanda
+    id_sitios_web_usuario: 2, // Link notion.so de María
+    fecha_hora_ingreso: "2024-07-10T10:05:00.000Z",
+    fecha_hora_salida: "2024-07-10T10:08:00.000Z",
+  },
+  {
+    id: 3,
+    id_usuarios: 2, // Luis Alberto
+    id_sitios_web_usuario: 3, // Link facebook.com de Luis
+    fecha_hora_ingreso: "2024-07-10T11:35:00.000Z",
+    fecha_hora_salida: null, // Visita activa/en curso
   }
 ];
 
@@ -39,7 +119,7 @@ const CATEGORY_INDEX = CATEGORY_CATALOG.reduce((acc, category) => {
   return acc;
 }, {});
 
-const DEFAULT_CATEGORY_ID = "sin-categoria";
+const DEFAULT_CATEGORY_ID = 1;
 
 const LEISURE_KEYWORDS = ["VEGETTA777", "VEGETTA", "MINECRAFT"];
 const BREAK_TIME_MINUTES = 60;
@@ -87,7 +167,7 @@ const getPageMetadata = async (tabId) => {
 };
 
 const inferClassificationFromCategory = (categoryId) => {
-  if (categoryId === "distractivo") {
+  if (categoryId === 2) {
     return "Ocio";
   }
   return "No ocio";
@@ -99,11 +179,11 @@ const resolveLeisureClassification = async (tabId, categoryId, isBrowserContext)
     return "No ocio";
   }
 
-  if (category.id === "distractivo") {
+  if (category.id === 2) {
     return "Ocio";
   }
 
-  if (category.id !== "doble-filo" || !isBrowserContext || !tabId) {
+  if (category.id !== 3 || !isBrowserContext || !tabId) {
     return "No ocio";
   }
 
@@ -142,112 +222,6 @@ const formatRelativeTime = (isoString) => {
   return `Hace ${diffDays} d`;
 };
 
-const formatDateTime = (isoString) => {
-  if (!isoString) {
-    return "";
-  }
-  const date = new Date(isoString);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return new Intl.DateTimeFormat("es-PE", {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(date);
-};
-
-const INITIAL_USERS = [
-  {
-    id: "user-1",
-    name: "María Fernanda",
-    email: "maria@focusguard.app"
-  },
-  {
-    id: "user-2",
-    name: "Luis Alberto",
-    email: "luis@focusguard.app"
-  }
-];
-
-const INITIAL_SITES = [
-  {
-    id: "site-1",
-    hostname: "youtube.com",
-    createdAt: "2024-07-10T09:40:00.000Z"
-  },
-  {
-    id: "site-2",
-    hostname: "notion.so",
-    createdAt: "2024-07-10T09:45:00.000Z"
-  },
-  {
-    id: "site-3",
-    hostname: "facebook.com",
-    createdAt: "2024-07-10T10:15:00.000Z"
-  }
-];
-
-const INITIAL_USER_SITES = [
-  {
-    id: "link-1",
-    userId: "user-1",
-    siteId: "site-1",
-    categoryId: "doble-filo",
-    notes: "Listas de reproducción educativas",
-    updatedAt: "2024-07-10T11:10:00.000Z"
-  },
-  {
-    id: "link-2",
-    userId: "user-1",
-    siteId: "site-2",
-    categoryId: "productivo",
-    notes: "Notas de proyectos",
-    updatedAt: "2024-07-10T09:50:00.000Z"
-  },
-  {
-    id: "link-3",
-    userId: "user-2",
-    siteId: "site-1",
-    categoryId: "sin-categoria",
-    notes: "",
-    updatedAt: "2024-07-10T10:30:00.000Z"
-  },
-  {
-    id: "link-4",
-    userId: "user-2",
-    siteId: "site-3",
-    categoryId: "distractivo",
-    notes: "Limitar a 10 minutos",
-    updatedAt: "2024-07-10T11:30:00.000Z"
-  }
-];
-
-const INITIAL_VISITS = [
-  {
-    id: "visit-1",
-    userId: "user-1",
-    siteId: "site-1",
-    classification: "Ocio",
-    visitedAt: "2024-07-10T11:12:00.000Z",
-    source: "manual"
-  },
-  {
-    id: "visit-2",
-    userId: "user-1",
-    siteId: "site-2",
-    classification: "No ocio",
-    visitedAt: "2024-07-10T10:05:00.000Z",
-    source: "auto"
-  },
-  {
-    id: "visit-3",
-    userId: "user-2",
-    siteId: "site-3",
-    classification: "Ocio",
-    visitedAt: "2024-07-10T11:35:00.000Z",
-    source: "auto"
-  }
-];
 
 const App = {
   setup() {
@@ -264,11 +238,9 @@ const App = {
     const userSiteCatalog = ref([...INITIAL_USER_SITES]);
     const visitLog = ref([...INITIAL_VISITS]);
 
-// Nuevos estados para manejar usuarios reales
     const users = ref([]); // Almacenará la lista de usuarios reales
-// El ID inicial puede ser null o una cadena vacía, pues lo cargaremos al montar
     const activeUserId = ref("");
-    const apiBaseUrl = "http://localhost:8000/api/v1"; // ⚠️ Ajusta la URL base de tu API
+    const apiBaseUrl = "http://localhost:8000/api/v1";
 
 
     const domain = ref("Analizando pestaña...");
@@ -276,7 +248,6 @@ const App = {
     const currentTabId = ref(null);
     const activeSiteId = ref(null);
 
-    //const activeUserId = ref(INITIAL_USERS[0]?.id ?? "");
     const classification = ref("-");
     const manualOverride = ref(false);
     const manualHelper = ref("");
@@ -284,58 +255,148 @@ const App = {
     const breakTimeMinutes = ref(BREAK_TIME_MINUTES);
 
 
-    const findSiteById = (siteId) => siteCatalog.value.find((site) => site.id === siteId) ?? null;
     const findSiteByHostname = (hostname) =>
-      siteCatalog.value.find((site) => site.hostname === hostname) ?? null;
+      siteCatalog.value.find((site) => site.dominio === hostname) ?? null;
 
     const ensureSiteRecord = (hostname) => {
       const normalised = normaliseHost(hostname);
       const existing = findSiteByHostname(normalised);
       if (existing) {
-        return { record: existing, wasCreated: false };
+        return { record: { ...existing, hostname: existing.dominio }, wasCreated: false };
       }
-      const now = new Date().toISOString();
+
       const record = {
         id: createId("site"),
-        hostname: normalised,
-        createdAt: now
+        dominio: normalised,
       };
       siteCatalog.value = [record, ...siteCatalog.value];
-      return { record, wasCreated: true };
+      return { record: { ...record, hostname: record.dominio }, wasCreated: true };
     };
-
+/*
     const ensureUserSiteRecord = (userId, siteId) => {
       const existing = userSiteCatalog.value.find(
-        (record) => record.userId === userId && record.siteId === siteId
+        (record) => record.id_usuarios === userId && record.id_sitios_web === siteId
       );
       if (existing) {
-        return { record: existing, wasCreated: false };
+        return { record: {
+            ...existing,
+            categoryId: existing.id_categorias_web,
+            userId: existing.id_usuarios,
+            siteId: existing.id_sitios_web
+          },
+          wasCreated: false
+        };
       }
-      const now = new Date().toISOString();
+
       const record = {
         id: createId("link"),
-        userId,
-        siteId,
-        categoryId: DEFAULT_CATEGORY_ID,
+        id_usuarios: Number(userId),
+        id_sitios_web: Number(siteId),
+        id_categorias_web: DEFAULT_CATEGORY_ID,
         notes: "",
-        updatedAt: now
       };
       userSiteCatalog.value = [record, ...userSiteCatalog.value];
-      return { record, wasCreated: true };
+      return {
+        record: {
+          ...record,
+          categoryId: record.id_categorias_web,
+          userId: record.id_usuarios,
+          siteId: record.id_sitios_web
+        },
+        wasCreated: true
+      };
+    };
+*/
+
+
+    const ensureUserSiteRecord = async (userIdStr, siteIdStr) => {
+      const userId = Number(userIdStr);
+      const siteId = Number(siteIdStr);
+
+      if (Number.isNaN(userId) || Number.isNaN(siteId)) {
+        throw new Error("ID de usuario o sitio web inválido.");
+      }
+
+      const endpoint = `${apiBaseUrl}/website-users/users/${userId}/sites/${siteId}`;
+
+      try {
+        // 1. INTENTAR OBTENER el registro de asignación
+        const response = await fetch(endpoint);
+
+        if (response.ok) {
+          const record = await response.json();
+          // Mapear claves del BE (id_categorias_web, etc.) a las claves internas del FE (categoryId, etc.)
+          return {
+            record: {
+              ...record,
+              categoryId: record.id_categorias_web,
+              userId: record.id_usuarios,
+              siteId: record.id_sitios_web
+            },
+            wasCreated: false
+          };
+        }
+
+        // Si la respuesta no es OK y es 404, crear el registro.
+        if (response.status === 404) {
+          console.log(`Asignación no encontrada para user ${userId} y site ${siteId}. Creando...`);
+
+          // 2. CREAR el nuevo registro de asignación
+          const createData = {
+            id_usuarios: userId,
+            id_sitios_web: siteId,
+            id_categorias_web: DEFAULT_CATEGORY_ID, // 1: Sin Categoría
+            origen: "custom"
+          };
+
+          const createResponse = await fetch(`${apiBaseUrl}/website-users`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(createData),
+          });
+
+          if (!createResponse.ok) {
+            const errorText = await createResponse.text();
+            throw new Error(`Fallo al crear la asignación: ${errorText}`);
+          }
+
+          const newRecord = await createResponse.json();
+          // Mapear claves del BE
+          return {
+            record: {
+              ...newRecord,
+              categoryId: newRecord.id_categorias_web,
+              userId: newRecord.id_usuarios,
+              siteId: newRecord.id_sitios_web
+            },
+            wasCreated: true
+          };
+        }
+
+        // Error diferente a 404
+        throw new Error(`Error inesperado al obtener asignación: ${response.status}`);
+
+      } catch (error) {
+        console.error("Fallo en ensureUserSiteRecord:", error);
+        throw error;
+      }
     };
 
     const pushVisitLog = ({ userId, siteId, classification: cls, source }) => {
+      const assignment = userSiteCatalog.value.find(
+        (record) => record.id_usuarios == userId && record.id_sitios_web == siteId
+      );
       if (!userId || !siteId) {
         return;
       }
       const now = new Date().toISOString();
       const visit = {
         id: createId("visit"),
-        userId,
-        siteId,
-        classification: cls,
-        visitedAt: now,
-        source
+        id_usuarios: Number(userId),
+        id_sitios_web_usuario: assignment.id, // ⬅️ Usar ID de asignación
+        fecha_hora_ingreso: now, // ⬅️ Usar clave del mock
+        classification: cls, // Lógica FE
+        source: source // Lógica FE
       };
       visitLog.value = [visit, ...visitLog.value].slice(0, 60);
     };
@@ -345,23 +406,24 @@ const App = {
         return;
       }
       const index = visitLog.value.findIndex(
-        (visit) => visit.userId === activeUserId.value && visit.siteId === activeSiteId.value
+        (visit) => visit.id_usuarios === activeUserId.value && visit.id_sitios_web_usuario === activeSiteId.value
       );
       if (index === -1) {
         return;
       }
       const now = new Date().toISOString();
+      const currentVisit = visitLog.value[index];
       const updated = {
-        ...visitLog.value[index],
+        ...currentVisit,
+        fecha_hora_salida: now, // Usar la clave de la DB para la hora de actualización/salida
         ...changes,
-        updatedAt: now
       };
       const clone = [...visitLog.value];
       clone[index] = updated;
       visitLog.value = clone;
     };
 
-    // ➡️ Nueva función para obtener usuarios desde la API
+    // Nueva función para obtener usuarios desde la API
     const fetchUsers = async () => {
       try {
         const response = await fetch(`${apiBaseUrl}/users`);
@@ -497,21 +559,6 @@ const App = {
           : "Excelente, estás dentro de los límites seguros.";
     };
 
-    const updateAssignmentRecord = (recordId, updates) => {
-      const index = userSiteCatalog.value.findIndex((record) => record.id === recordId);
-      if (index === -1) {
-        return null;
-      }
-      const updated = {
-        ...userSiteCatalog.value[index],
-        ...updates
-      };
-      const clone = [...userSiteCatalog.value];
-      clone[index] = updated;
-      userSiteCatalog.value = clone;
-      return updated;
-    };
-
     const onCategoryChange = async (newCategoryId) => {
       if (!activeSiteId.value) {
         return;
@@ -522,7 +569,6 @@ const App = {
       }
       const updated = updateAssignmentRecord(assignmentRecord.id, {
         categoryId: newCategoryId,
-        updatedAt: new Date().toISOString()
       });
       manualOverride.value = false;
       const recalculated = await classifySiteForCategory(updated?.categoryId ?? newCategoryId);
@@ -614,8 +660,7 @@ const App = {
       () => CATEGORY_INDEX[selectedCategoryId.value] ?? CATEGORY_INDEX[DEFAULT_CATEGORY_ID]
     );
 
-    const activeCategoryLabel = computed(() => activeCategory.value?.label ?? "Sin categoría");
-    const activeCategoryDescription = computed(() => activeCategory.value?.description ?? "");
+    const activeCategoryLabel = computed(() => activeCategory.value?.nombre ?? "Sin categoria");
 
     const classificationLabel = computed(() => {
       if (classification.value === "-") {
@@ -670,120 +715,23 @@ const App = {
       return `Último registro ${formatRelativeTime(latestVisit.value.visitedAt)} (${sourceLabel}).`;
     });
 
-    const siteSummary = computed(() => {
-      if (!activeSiteId.value) {
-        return null;
-      }
-      const site = findSiteById(activeSiteId.value);
-      const assignments = userSiteCatalog.value.filter((record) => record.siteId === activeSiteId.value);
-      const assignmentForUser = assignments.find((record) => record.userId === activeUserId.value) ?? null;
-      return {
-        hostname: site?.hostname ?? displayDomain.value,
-        firstSeenRelative: site?.createdAt ? formatRelativeTime(site.createdAt) : "Pendiente",
-        firstSeenLabel: formatDateTime(site?.createdAt ?? ""),
-        usersWithCategory: assignments.length,
-        notes: assignmentForUser?.notes ?? "",
-        updatedRelative: assignmentForUser?.updatedAt
-          ? formatRelativeTime(assignmentForUser.updatedAt)
-          : "Sin actualización",
-        updatedLabel: formatDateTime(assignmentForUser?.updatedAt ?? "")
-      };
-    });
-
-    const totalVisitsForUser = computed(
-      () => visitLog.value.filter((visit) => visit.userId === activeUserId.value).length
-    );
-
-    const totalVisitsForActiveSite = computed(() =>
-      visitLog.value.filter(
-        (visit) => visit.userId === activeUserId.value && visit.siteId === activeSiteId.value
-      ).length
-    );
-
-    const visitsSnapshot = computed(() =>
-      visitLog.value
-        .filter((visit) => visit.userId === activeUserId.value)
-        .slice(0, 5)
-        .map((visit) => {
-          const site = findSiteById(visit.siteId);
-          const assignment = userSiteCatalog.value.find(
-            (record) => record.userId === activeUserId.value && record.siteId === visit.siteId
-          );
-          const category = CATEGORY_INDEX[assignment?.categoryId ?? DEFAULT_CATEGORY_ID];
-          return {
-            id: visit.id,
-            hostname: site?.hostname ?? "-",
-            categoryLabel: category.label,
-            categoryTone: category.tone ?? "neutral",
-            classification: visit.classification,
-            classificationTone: visit.classification === "Ocio" ? "danger" : "success",
-            visitedRelative: formatRelativeTime(visit.visitedAt),
-            visitedLabel: formatDateTime(visit.visitedAt),
-            sourceLabel: visit.source === "manual" ? "Manual" : "Automático"
-          };
-        })
-    );
-
-    const userAssignments = computed(() => {
-      const records = userSiteCatalog.value.filter((record) => record.userId === activeUserId.value);
-      return records
-        .map((record) => {
-          const site = findSiteById(record.siteId);
-          const category = CATEGORY_INDEX[record.categoryId] ?? CATEGORY_INDEX[DEFAULT_CATEGORY_ID];
-          return {
-            id: record.id,
-            hostname: site?.hostname ?? "-",
-            categoryLabel: category.label,
-            categoryTone: category.tone ?? "neutral",
-            updatedAt: record.updatedAt,
-            updatedRelative: record.updatedAt ? formatRelativeTime(record.updatedAt) : "Sin actualización",
-            updatedLabel: formatDateTime(record.updatedAt),
-            notes: record.notes
-          };
-        })
-        .sort((a, b) => {
-          const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-          const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-          return bTime - aTime;
-        })
-        .slice(0, 4);
-    });
-
-    const categoryDistribution = computed(() =>
-      CATEGORY_CATALOG.map((category) => {
-        const count = userSiteCatalog.value.filter(
-          (record) => record.userId === activeUserId.value && record.categoryId === category.id
-        ).length;
-        return { id: category.id, label: category.label, tone: category.tone ?? "neutral", count };
-      }).filter((item) => item.count > 0)
-    );
-
-    const activeUserAssignmentsCount = computed(
-      () => userSiteCatalog.value.filter((record) => record.userId === activeUserId.value).length
-    );
-
-    const totalCatalogSites = computed(() => siteCatalog.value.length);
-
     const categoryOptions = CATEGORY_CATALOG.map((category) => ({
       id: category.id,
-      label: category.label
+      nombre: category.nombre
     }));
 
     return {
       isLoading,
       headline,
       helperText,
-      //users: INITIAL_USERS,
       activeUserId,
       activeUser,
       displayDomain,
-      siteSummary,
       errorMessage,
       classificationLabel,
       classificationTone,
       categoryTone,
       activeCategoryLabel,
-      activeCategoryDescription,
       categoryOptions,
       selectedCategoryId,
       breakTimeMinutes,
@@ -791,13 +739,6 @@ const App = {
       manualButtonDisabled,
       manualButtonLabel,
       manualHint,
-      totalVisitsForUser,
-      totalVisitsForActiveSite,
-      visitsSnapshot,
-      userAssignments,
-      categoryDistribution,
-      activeUserAssignmentsCount,
-      totalCatalogSites,
       onUserChange,
       onCategoryChange,
       toggleClassification
@@ -815,8 +756,7 @@ const App = {
         createElement("div", { class: "stat-card__icon" }, "🗂️"),
         createElement("div", { class: "stat-card__body" }, [
           createElement("span", { class: "stat-card__label" }, "Tabla sitios_web_usuario"),
-          createElement("span", { class: "stat-card__value" }, ctx.activeCategoryLabel),
-          createElement("p", { class: "stat-card__subtitle" }, ctx.activeCategoryDescription)
+          createElement("span", { class: "stat-card__value" }, ctx.activeCategoryLabel)
         ])
       ]),
       createElement("article", { class: `stat-card stat-card--${ctx.classificationTone}` }, [
@@ -831,12 +771,7 @@ const App = {
         createElement("div", { class: "stat-card__icon" }, "⏱️"),
         createElement("div", { class: "stat-card__body" }, [
           createElement("span", { class: "stat-card__label" }, "Pausa sugerida"),
-          createElement("span", { class: "stat-card__value" }, `${ctx.breakTimeMinutes} min`),
-          createElement(
-            "p",
-            { class: "stat-card__subtitle" },
-            `Visitas del usuario: ${ctx.totalVisitsForUser} · Visitas a este sitio: ${ctx.totalVisitsForActiveSite}`
-          )
+          createElement("span", { class: "stat-card__value" }, `${ctx.breakTimeMinutes} min`)
         ])
       ])
     ]);
@@ -848,7 +783,7 @@ const App = {
           value: option.id,
           selected: option.id === ctx.selectedCategoryId
         },
-        option.label
+        option.nombre
       )
     );
 
@@ -858,14 +793,14 @@ const App = {
         createElement("h2", { class: "panel__title" }, "Sitios por usuario")
       ]),
       createElement("div", { class: "panel__content" }, [
-        createElement("label", { class: "field" }, [
+        createElement("div", { class: "field" }, [
           createElement("span", { class: "field__label" }, "Categoría asignada"),
           createElement(
             "select",
             {
               class: "field__control",
               value: ctx.selectedCategoryId,
-              onChange: (event) => ctx.onCategoryChange(event.target.value)
+              onChange: (event) => ctx.onCategoryChange(Number(event.target.value))
             },
             categoryOptions
           )
