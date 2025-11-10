@@ -203,13 +203,19 @@ const registerVisitForTab = async (tabId, url) => {
 const handleTabActivated = async (activeInfo) => {
   if (activeInfo.tabId === currentActiveTabId) return;
 
-  // Cierra la visita de la pestaña que DEJA de estar activa (si existía)
-  if (currentActiveTabId !== null) {
-    await endVisitForTab(currentActiveTabId);
-  }
+  // 1. Identifica el ID de la pestaña que está dejando de estar activa
+  const oldActiveTabId = currentActiveTabId;
 
+  // 2. Actualiza el ID de la pestaña activa INMEDIATAMENTE para prevenir duplicación
   currentActiveTabId = activeInfo.tabId;
 
+  // 3. Cierra la visita de la pestaña ANTERIOR (usando el ID guardado)
+  if (oldActiveTabId !== null) {
+    // USO DE AWAIT ES CORRECTO. Si falla, el problema es en endVisitForTab
+    await endVisitForTab(oldActiveTabId);
+  }
+
+  // 4. Inicia la visita en la nueva pestaña
   try {
     const tab = await chrome.tabs.get(activeInfo.tabId);
     if (tab?.url) {
