@@ -170,8 +170,8 @@ const registerVisitForTab = async (tabId, url) => {
   let hostname;
   try {
     hostname = new URL(url).hostname;
-  } catch (error) {
-    console.error("No se pudo analizar la URL de la pestaña", error);
+  } catch {
+    console.error("No se pudo analizar la URL de la pestaña", url);
     await endVisitForTab(tabId);
     return;
   }
@@ -179,30 +179,31 @@ const registerVisitForTab = async (tabId, url) => {
   const domain = normaliseHost(hostname);
   const currentSession = tabSessions.get(tabId);
 
-  if (currentSession?.domain === domain && currentSession.visitId) {
-    return;
+  // --- Blindajes clave ---
+  if (currentSession?.visitId) {
+    // Si ya tenemos visita y es el mismo dominio, no dupliques
+    if (currentSession.domain === domain) return;
+    // Si cambia el dominio, cierra la anterior y continúa para abrir nueva
+    await endVisitForTab(tabId);
   }
+  // -----------------------
 
   try {
     const websiteId = await ensureWebsite(domain);
     const websiteUserId = await ensureWebsiteUser(websiteId, domain);
     const visitId = await createWebsiteVisit(websiteUserId);
 
-    tabSessions.set(tabId, {
-      domain,
-      websiteUserId,
-      visitId
-    });
+    tabSessions.set(tabId, { domain, websiteUserId, visitId });
   } catch (error) {
     console.error(`No se pudo registrar la visita para la pestaña ${tabId}`, error);
   }
 };
 
-const handleTabActivated = async (activeInfo) => {
-  if (activeInfo.tabId === currentActiveTabId) {
-    return;
-  }
 
+const handleTabActivated = async (activeInfo) => {
+  if (activeInfo.tabId === currentActiveTabId) return;
+
+  // Cierra la visita de la pestaña que DEJA de estar activa (si existía)
   if (currentActiveTabId !== null) {
     await endVisitForTab(currentActiveTabId);
   }
@@ -211,8 +212,8 @@ const handleTabActivated = async (activeInfo) => {
 
   try {
     const tab = await chrome.tabs.get(activeInfo.tabId);
-
     if (tab?.url) {
+      // Esto no abrirá otra visita si ya hay una activa para el mismo dominio (gracias al blindaje)
       await registerVisitForTab(activeInfo.tabId, tab.url);
     } else {
       await endVisitForTab(activeInfo.tabId);
@@ -222,15 +223,33 @@ const handleTabActivated = async (activeInfo) => {
   }
 };
 
+
 const handleTabUpdate = async (tabId, changeInfo, tab) => {
+  // 1) Cambio de URL detectado
   if (changeInfo.url) {
-    if (tabId === currentActiveTabId && tab.active) {
+    if (!isHttpUrl(changeInfo.url)) {
       await endVisitForTab(tabId);
-      await registerVisitForTab(tabId, tab.url);
+      return;
+    }
+    // Comparar dominios usando la URL NUEVA
+    let newDomain;
+    try {
+      newDomain = normaliseHost(new URL(changeInfo.url).hostname);
+    } catch {
+      await endVisitForTab(tabId);
+      return;
+    }
+
+    const curr = tabSessions.get(tabId);
+    // Si el dominio cambió y la pestaña está activa, cerramos la visita anterior y abrimos nueva
+    if (tab.active && curr?.domain !== newDomain) {
+      await endVisitForTab(tabId);
+      await registerVisitForTab(tabId, changeInfo.url);
     }
     return;
   }
 
+  // 2) Carga completa sin cambio de URL: solo “asegurar” sesión si es la pestaña activa
   if (changeInfo.status === "complete") {
     if (tabId === currentActiveTabId && tab.active && tab.url) {
       await registerVisitForTab(tabId, tab.url);
@@ -238,6 +257,7 @@ const handleTabUpdate = async (tabId, changeInfo, tab) => {
     return;
   }
 };
+
 
 const handleTabRemoved = async (tabId) => {
   if (tabId === currentActiveTabId) {
