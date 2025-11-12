@@ -2,11 +2,13 @@ const API_BASE_URL = "http://127.0.0.1:8000/api/v1";
 const ENDPOINTS = {
   websites: `${API_BASE_URL}/websites`,
   websiteUsers: `${API_BASE_URL}/website-users`,
-  websiteVisited: `${API_BASE_URL}/website-visited`
+  websiteVisited: `${API_BASE_URL}/website-visited`,
+  contents: `${API_BASE_URL}/contents`
 };
 
 const USER_ID = 1;
 const DEFAULT_CATEGORY_ID = 1;
+const DOUBLE_EDGE_CATEGORY_ID = 4;
 const DEFAULT_ORIGIN = "default";
 
 const tabSessions = new Map();
@@ -88,13 +90,15 @@ const ensureWebsiteUser = async (websiteId, domain) => {
 
   const data = await parseJsonSafe(response);
   const userWebsiteId = data?.id;
+  const categoryId = data?.id_categorias_web ?? DEFAULT_CATEGORY_ID;
 
   if (!userWebsiteId) {
     throw new Error("El backend no devolvió el id del sitio web del usuario");
   }
 
-  websiteUserCache.set(cacheKey, userWebsiteId);
-  return userWebsiteId;
+  const result = { id: userWebsiteId, categoryId };
+  websiteUserCache.set(cacheKey, result);
+  return result;
 };
 
 const createWebsiteVisit = async (websiteUserId) => {
@@ -138,6 +142,95 @@ const endWebsiteVisit = async (visitId) => {
 
   if (!response.ok) {
     throw new Error(`Error al cerrar la visita (${response.status})`);
+  }
+};
+
+const extractContentMetadata = async (tabId) => {
+  if (typeof chrome === "undefined" || !chrome.scripting?.executeScript) {
+    return null;
+  }
+
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const rawTitle = document.title?.trim() ?? "";
+        const ogDescription =
+          document.querySelector('meta[property="og:description"]')?.getAttribute("content")?.trim() ?? "";
+        const metaDescription =
+          document.querySelector('meta[name="description"]')?.getAttribute("content")?.trim() ?? "";
+
+        const title = rawTitle || null;
+        const description = ogDescription || metaDescription || null;
+
+        return { title, description };
+      }
+    });
+
+    return result?.result ?? null;
+  } catch (error) {
+    console.error("No se pudo extraer los metadatos del contenido", error);
+    return null;
+  }
+};
+
+const createContentRecord = async ({ title, description }) => {
+  const response = await fetch(`${ENDPOINTS.contents}/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      titulo: title,
+      descripcion: description
+    })
+  });
+
+  if (!response.ok && response.status !== 409) {
+    throw new Error(`Error al registrar el contenido (${response.status})`);
+  }
+};
+
+const registerContentForTab = async (tabId, session) => {
+  if (!session) {
+    return;
+  }
+
+  if (session.status === 'pending') {
+    return;
+  }
+
+  if (session.categoryId !== DOUBLE_EDGE_CATEGORY_ID) {
+    return;
+  }
+
+  if (!session.visitId || !session.websiteUserId) {
+    return;
+  }
+
+  if (session.contentRegistered) {
+    return;
+  }
+
+  const metadata = await extractContentMetadata(tabId);
+
+  if (!metadata?.title) {
+    console.warn("No se registró el contenido porque no se encontró un título en la página");
+    return;
+  }
+
+  try {
+    await createContentRecord({
+      title: metadata.title,
+      description: metadata.description ?? null
+    });
+
+    tabSessions.set(tabId, {
+      ...session,
+      contentRegistered: true
+    });
+  } catch (error) {
+    console.error("No se pudo registrar el contenido del sitio", error);
   }
 };
 
@@ -213,11 +306,21 @@ const registerVisitForTab = async (tabId, url) => {
 
   try {
     const websiteId = await ensureWebsite(domain);
-    const websiteUserId = await ensureWebsiteUser(websiteId, domain);
-    const visitId = await createWebsiteVisit(websiteUserId);
+    const websiteUser = await ensureWebsiteUser(websiteId, domain);
+    const visitId = await createWebsiteVisit(websiteUser.id);
 
     // 5. "Desbloquear": Actualizar la sesión con el visitId final.
-    tabSessions.set(tabId, { domain, websiteUserId, visitId });
+    const sessionData = {
+      domain,
+      websiteUserId: websiteUser.id,
+      visitId,
+      categoryId: websiteUser.categoryId,
+      contentRegistered: false,
+      status: 'active'
+    };
+    tabSessions.set(tabId, sessionData);
+
+    await registerContentForTab(tabId, sessionData);
 
   } catch (error) {
     console.error(`No se pudo registrar la visita para la pestaña ${tabId}`, error);
@@ -284,6 +387,10 @@ const handleTabUpdate = async (tabId, changeInfo, tab) => {
       await endVisitForTab(tabId);
       await registerVisitForTab(tabId, changeInfo.url);
     }
+    const updatedSession = tabSessions.get(tabId);
+    if (tab.active && updatedSession?.domain === newDomain) {
+      await registerContentForTab(tabId, updatedSession);
+    }
     return;
   }
 
@@ -291,6 +398,10 @@ const handleTabUpdate = async (tabId, changeInfo, tab) => {
   if (changeInfo.status === "complete") {
     if (tabId === currentActiveTabId && tab.active && tab.url) {
       await registerVisitForTab(tabId, tab.url);
+      const session = tabSessions.get(tabId);
+      if (session) {
+        await registerContentForTab(tabId, session);
+      }
     }
     return;
   }
