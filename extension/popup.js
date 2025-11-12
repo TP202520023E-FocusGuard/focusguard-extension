@@ -1,29 +1,60 @@
 import { computed, createApp, onMounted, ref } from "./libs/mini-vue.js";
 
-// TODO: Enlazar con la tabla de Sitios Web
-const CATEGORIES = {
-  "youtube.com": "Doble filo",
-  "facebook.com": "Procrastinación",
-  "aulavirtual.upc.edu.pe": "Productividad",
-  "google.com": "Neutral"
-};
+const CATEGORY_CATALOG = [
+  {
+    id: "sin-categoria",
+    label: "Sin categoría",
+    description: "Usa esta categoría mientras decides cómo catalogar el sitio.",
+    tone: "neutral"
+  },
+  {
+    id: "neutral",
+    label: "Neutral",
+    description: "No impacta directamente tu enfoque, pero conviene monitorearlo.",
+    tone: "info"
+  },
+  {
+    id: "productivo",
+    label: "Productivo",
+    description: "Aporta a tus objetivos laborales o académicos.",
+    tone: "success"
+  },
+  {
+    id: "doble-filo",
+    label: "Doble filo",
+    description: "Puede ser productivo u ocio según el contenido específico.",
+    tone: "warning"
+  },
+  {
+    id: "distractivo",
+    label: "Distractivo",
+    description: "Sabes que te desvía del objetivo principal.",
+    tone: "danger"
+  }
+];
 
-// TODO: Investigar como identificar palabras de ocio con la BD
+const CATEGORY_INDEX = CATEGORY_CATALOG.reduce((acc, category) => {
+  acc[category.id] = category;
+  return acc;
+}, {});
+
+const DEFAULT_CATEGORY_ID = "sin-categoria";
+
 const LEISURE_KEYWORDS = ["VEGETTA777", "VEGETTA", "MINECRAFT"];
 const BREAK_TIME_MINUTES = 60;
-// const BACKEND_ENDPOINT = "https://tu-backend.com/api/registrar-dominio";
-//const BACKEND_ENDPOINT = "http://localhost:8000/api/v1/websites";
 
-// Obtenemos el URL sin el www.
-const normaliseHost = (hostname = "") => hostname.replace(/^www\./, "").toLowerCase();
-
-// Obtenemos la categoría asociada a la web consultada
-const getCategory = (hostname) => {
-  const normalised = normaliseHost(hostname);
-  return CATEGORIES[normalised] ?? "Sin categoría";
+const createIdFactory = () => {
+  let counter = 0;
+  return (prefix) => {
+    counter += 1;
+    return `${prefix}-${Date.now().toString(36)}-${counter.toString(36)}`;
+  };
 };
 
-// Se valida si el texto enviado contiene palabras de ocio o no
+const createId = createIdFactory();
+
+const normaliseHost = (hostname = "") => hostname.replace(/^www\./, "").toLowerCase();
+
 const includesLeisureKeyword = (text) => {
   if (!text) {
     return false;
@@ -31,35 +62,7 @@ const includesLeisureKeyword = (text) => {
   const upper = text.toUpperCase();
   return LEISURE_KEYWORDS.some((keyword) => upper.includes(keyword));
 };
-/*
-const sendDomainToBackend = async (domain) => {
-  if (!domain || typeof fetch === "undefined") {
-    return;
-  }
 
-  try {
-    const response = await fetch(BACKEND_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        dominio: domain
-      })
-    });
-
-    if (!response.ok && response.status !== 409) {
-      throw new Error(`Error ${response.status}: ${response.statusText}`);
-    }
-
-    // Se ignora la respuesta del backend, pero se mantiene la promesa para posibles usos futuros.
-    return response;
-  } catch (error) {
-    console.error("Error al enviar el dominio al backend", error);
-    throw error;
-  }
-};
-*/
 const getPageMetadata = async (tabId) => {
   if (typeof chrome === "undefined" || !chrome.scripting?.executeScript) {
     return { title: "", metaDescription: "" };
@@ -76,17 +79,31 @@ const getPageMetadata = async (tabId) => {
       }
     });
     return result?.result ?? { title: "", metaDescription: "" };
-
   } catch (error) {
     console.error("Error al obtener metadatos de la página", error);
     return { title: "", metaDescription: "" };
   }
 };
 
-// Clasificamos si el contenido es de OCIO o NO OCIO
-const resolveLeisureClassification = async (tabId, category) => {
-  if (category !== "Doble filo") {
-    return "No ocio"; // TODO: Actualizar para el caso en que sea PROCRASTINATIVA la categoría
+const inferClassificationFromCategory = (categoryId) => {
+  if (categoryId === "distractivo") {
+    return "Ocio";
+  }
+  return "No ocio";
+};
+
+const resolveLeisureClassification = async (tabId, categoryId, isBrowserContext) => {
+  const category = CATEGORY_INDEX[categoryId];
+  if (!category) {
+    return "No ocio";
+  }
+
+  if (category.id === "distractivo") {
+    return "Ocio";
+  }
+
+  if (category.id !== "doble-filo" || !isBrowserContext || !tabId) {
+    return "No ocio";
   }
 
   const { title, metaDescription } = await getPageMetadata(tabId);
@@ -94,117 +111,507 @@ const resolveLeisureClassification = async (tabId, category) => {
   return hasKeyword ? "Ocio" : "No ocio";
 };
 
-// Elemento HTML compartido para la sección Categoría, Clasificación y Descanso
-const StatHighlight = {
-  setup(props) {
-    return { props };
-  },
-  render(ctx, createElement) {
-    const tone = ctx.props.tone ?? "neutral";
-    const classes = ["stat-card", `stat-card--${tone}`].join(" ");
-    return createElement("article", { class: classes }, [
-      createElement("div", { class: "stat-card__icon" }, ctx.props.icon ?? ""),
-      createElement("div", { class: "stat-card__body" }, [
-        createElement("span", { class: "stat-card__label" }, ctx.props.label ?? ""),
-        createElement("span", { class: "stat-card__value" }, ctx.props.value ?? ""),
-        ctx.props.subtitle
-          ? createElement("p", { class: "stat-card__subtitle" }, ctx.props.subtitle)
-          : null
-      ])
-    ]);
+const formatRelativeTime = (isoString) => {
+  if (!isoString) {
+    return "Sin registro";
   }
+
+  const target = new Date(isoString).getTime();
+  if (Number.isNaN(target)) {
+    return "Sin registro";
+  }
+
+  const diffMs = Date.now() - target;
+  const diffMinutes = Math.round(diffMs / 60000);
+
+  if (diffMinutes <= 0) {
+    return "Hace instantes";
+  }
+
+  if (diffMinutes < 60) {
+    return `Hace ${diffMinutes} min`;
+  }
+
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `Hace ${diffHours} h`;
+  }
+
+  const diffDays = Math.round(diffHours / 24);
+  return `Hace ${diffDays} d`;
 };
 
-// Elemento HTML para la sección de Información del sitio
-const InfoBlock = {
-  setup(props) {
-    return { props };
-  },
-  render(ctx, createElement) {
-    return createElement("div", { class: "info-block" }, [
-      createElement("div", { class: "info-block__header" }, [
-        createElement("span", { class: "info-block__icon" }, ctx.props.icon ?? ""),
-        createElement("span", { class: "info-block__title" }, ctx.props.title ?? "")
-      ]),
-      createElement(
-        "p",
-        { class: "info-block__description" },
-        ctx.props.description ?? ""
-      )
-    ]);
+const formatDateTime = (isoString) => {
+  if (!isoString) {
+    return "";
   }
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return new Intl.DateTimeFormat("es-PE", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(date);
 };
+
+const INITIAL_USERS = [
+  {
+    id: "user-1",
+    name: "María Fernanda",
+    email: "maria@focusguard.app"
+  },
+  {
+    id: "user-2",
+    name: "Luis Alberto",
+    email: "luis@focusguard.app"
+  }
+];
+
+const INITIAL_SITES = [
+  {
+    id: "site-1",
+    hostname: "youtube.com",
+    createdAt: "2024-07-10T09:40:00.000Z"
+  },
+  {
+    id: "site-2",
+    hostname: "notion.so",
+    createdAt: "2024-07-10T09:45:00.000Z"
+  },
+  {
+    id: "site-3",
+    hostname: "facebook.com",
+    createdAt: "2024-07-10T10:15:00.000Z"
+  }
+];
+
+const INITIAL_USER_SITES = [
+  {
+    id: "link-1",
+    userId: "user-1",
+    siteId: "site-1",
+    categoryId: "doble-filo",
+    notes: "Listas de reproducción educativas",
+    updatedAt: "2024-07-10T11:10:00.000Z"
+  },
+  {
+    id: "link-2",
+    userId: "user-1",
+    siteId: "site-2",
+    categoryId: "productivo",
+    notes: "Notas de proyectos",
+    updatedAt: "2024-07-10T09:50:00.000Z"
+  },
+  {
+    id: "link-3",
+    userId: "user-2",
+    siteId: "site-1",
+    categoryId: "sin-categoria",
+    notes: "",
+    updatedAt: "2024-07-10T10:30:00.000Z"
+  },
+  {
+    id: "link-4",
+    userId: "user-2",
+    siteId: "site-3",
+    categoryId: "distractivo",
+    notes: "Limitar a 10 minutos",
+    updatedAt: "2024-07-10T11:30:00.000Z"
+  }
+];
+
+const INITIAL_VISITS = [
+  {
+    id: "visit-1",
+    userId: "user-1",
+    siteId: "site-1",
+    classification: "Ocio",
+    visitedAt: "2024-07-10T11:12:00.000Z",
+    source: "manual"
+  },
+  {
+    id: "visit-2",
+    userId: "user-1",
+    siteId: "site-2",
+    classification: "No ocio",
+    visitedAt: "2024-07-10T10:05:00.000Z",
+    source: "auto"
+  },
+  {
+    id: "visit-3",
+    userId: "user-2",
+    siteId: "site-3",
+    classification: "Ocio",
+    visitedAt: "2024-07-10T11:35:00.000Z",
+    source: "auto"
+  }
+];
 
 const App = {
   setup() {
-    /* Averigua si ¿Soy una extensión de Chrome?
-     * 1. Comprueba si existe el objeto global chrome
-     * 2. Comprueba si existen funciones de API de Chrome (Estas funciones solo están disponibles
-     *    para una extensión, no para las páginas web normales)
-     */
     const isBrowserContext =
       typeof chrome !== "undefined" && Boolean(chrome.tabs?.query) && Boolean(chrome.scripting);
 
     const isLoading = ref(isBrowserContext);
-    const headline = ref("Mantén tu enfoque");
+    const headline = ref("Tablero de registro de visitas");
     const helperText = ref(
-      "Identificamos el contexto de tu pestaña activa para ayudarte a decidir si vale la pena seguir aquí."
+      "Cada interacción se sincroniza con usuarios, catálogo de sitios y visitas registradas."
     );
+
+    const siteCatalog = ref([...INITIAL_SITES]);
+    const userSiteCatalog = ref([...INITIAL_USER_SITES]);
+    const visitLog = ref([...INITIAL_VISITS]);
 
     const domain = ref("Analizando pestaña...");
-    const category = ref("-");
+    const currentHostname = ref("");
+    const currentTabId = ref(null);
+    const activeSiteId = ref(null);
+
+    const activeUserId = ref(INITIAL_USERS[0]?.id ?? "");
     const classification = ref("-");
-    const breakTimeMinutes = ref(BREAK_TIME_MINUTES);
     const manualOverride = ref(false);
-    const errorMessage = ref("");
     const manualHelper = ref("");
+    const errorMessage = ref("");
+    const breakTimeMinutes = ref(BREAK_TIME_MINUTES);
 
-    // Muestra si la clasificación fue corregida o no
-    const classificationLabel = computed(() => {
-      const base = classification.value;
-      if (base === "-") {
-        return "Sin datos";
+    const findSiteById = (siteId) => siteCatalog.value.find((site) => site.id === siteId) ?? null;
+    const findSiteByHostname = (hostname) =>
+      siteCatalog.value.find((site) => site.hostname === hostname) ?? null;
+
+    const ensureSiteRecord = (hostname) => {
+      const normalised = normaliseHost(hostname);
+      const existing = findSiteByHostname(normalised);
+      if (existing) {
+        return { record: existing, wasCreated: false };
       }
-      return manualOverride.value ? `${base} · corregido` : base;
+      const now = new Date().toISOString();
+      const record = {
+        id: createId("site"),
+        hostname: normalised,
+        createdAt: now
+      };
+      siteCatalog.value = [record, ...siteCatalog.value];
+      return { record, wasCreated: true };
+    };
+
+    const ensureUserSiteRecord = (userId, siteId) => {
+      const existing = userSiteCatalog.value.find(
+        (record) => record.userId === userId && record.siteId === siteId
+      );
+      if (existing) {
+        return { record: existing, wasCreated: false };
+      }
+      const now = new Date().toISOString();
+      const record = {
+        id: createId("link"),
+        userId,
+        siteId,
+        categoryId: DEFAULT_CATEGORY_ID,
+        notes: "",
+        updatedAt: now
+      };
+      userSiteCatalog.value = [record, ...userSiteCatalog.value];
+      return { record, wasCreated: true };
+    };
+
+    const pushVisitLog = ({ userId, siteId, classification: cls, source }) => {
+      if (!userId || !siteId) {
+        return;
+      }
+      const now = new Date().toISOString();
+      const visit = {
+        id: createId("visit"),
+        userId,
+        siteId,
+        classification: cls,
+        visitedAt: now,
+        source
+      };
+      visitLog.value = [visit, ...visitLog.value].slice(0, 60);
+    };
+
+    const patchLatestVisit = (changes = {}) => {
+      if (!activeSiteId.value) {
+        return;
+      }
+      const index = visitLog.value.findIndex(
+        (visit) => visit.userId === activeUserId.value && visit.siteId === activeSiteId.value
+      );
+      if (index === -1) {
+        return;
+      }
+      const now = new Date().toISOString();
+      const updated = {
+        ...visitLog.value[index],
+        ...changes,
+        updatedAt: now
+      };
+      const clone = [...visitLog.value];
+      clone[index] = updated;
+      visitLog.value = clone;
+    };
+
+    const classifySiteForCategory = async (categoryId) => {
+      if (!categoryId) {
+        return "No ocio";
+      }
+      if (!isBrowserContext || !currentTabId.value) {
+        return inferClassificationFromCategory(categoryId);
+      }
+      try {
+        const resolved = await resolveLeisureClassification(
+          currentTabId.value,
+          categoryId,
+          isBrowserContext
+        );
+        return resolved ?? inferClassificationFromCategory(categoryId);
+      } catch (error) {
+        console.error("Error al clasificar la pestaña", error);
+        return inferClassificationFromCategory(categoryId);
+      }
+    };
+
+    const syncActiveSite = async ({ hostname, tabId, logVisit }) => {
+      if (!hostname) {
+        return;
+      }
+
+      const normalised = normaliseHost(hostname);
+      domain.value = normalised;
+      currentHostname.value = normalised;
+      if (tabId) {
+        currentTabId.value = tabId;
+      }
+
+      const { record: siteRecord, wasCreated: siteCreated } = ensureSiteRecord(normalised);
+      activeSiteId.value = siteRecord.id;
+
+      const { record: assignmentRecord, wasCreated: assignmentCreated } = ensureUserSiteRecord(
+        activeUserId.value,
+        siteRecord.id
+      );
+
+      const resolvedClassification = await classifySiteForCategory(assignmentRecord.categoryId);
+      classification.value = resolvedClassification;
+      manualOverride.value = false;
+      manualHelper.value =
+        resolvedClassification === "Ocio"
+          ? "Toma un respiro profundo antes de continuar."
+          : "Excelente, estás dentro de los límites seguros.";
+
+      if (logVisit) {
+        pushVisitLog({
+          userId: activeUserId.value,
+          siteId: siteRecord.id,
+          classification: resolvedClassification,
+          source: "auto"
+        });
+      }
+
+      if (siteCreated || assignmentCreated) {
+        helperText.value = siteCreated
+          ? "Registramos este dominio en tu catálogo y lo enlazamos con el usuario."
+          : "Se recuperó la categoría personalizada del usuario para este sitio.";
+      } else {
+        helperText.value = "Sincronizamos la visita con tu configuración existente.";
+      }
+    };
+
+    const resolveActiveTab = async ({ logVisit = true } = {}) => {
+      if (!isBrowserContext) {
+        isLoading.value = false;
+        return;
+      }
+
+      try {
+        isLoading.value = true;
+        errorMessage.value = "";
+        const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        if (!activeTab?.url) {
+          throw new Error("Pestaña sin URL válida");
+        }
+        const currentUrl = new URL(activeTab.url);
+        await syncActiveSite({ hostname: currentUrl.hostname, tabId: activeTab.id, logVisit });
+      } catch (error) {
+        console.error("Error al obtener la pestaña activa", error);
+        errorMessage.value = "No pudimos identificar la pestaña actual.";
+        domain.value = "-";
+        activeSiteId.value = null;
+        classification.value = "-";
+      } finally {
+        isLoading.value = false;
+      }
+    };
+
+    const onUserChange = async (newUserId) => {
+      if (!newUserId || newUserId === activeUserId.value) {
+        return;
+      }
+      activeUserId.value = newUserId;
+      manualOverride.value = false;
+
+      if (!currentHostname.value) {
+        return;
+      }
+
+      const { record: siteRecord } = ensureSiteRecord(currentHostname.value);
+      activeSiteId.value = siteRecord.id;
+      const { record: assignmentRecord } = ensureUserSiteRecord(newUserId, siteRecord.id);
+      const resolvedClassification = await classifySiteForCategory(assignmentRecord.categoryId);
+      classification.value = resolvedClassification;
+      manualHelper.value =
+        resolvedClassification === "Ocio"
+          ? "Toma un respiro profundo antes de continuar."
+          : "Excelente, estás dentro de los límites seguros.";
+    };
+
+    const updateAssignmentRecord = (recordId, updates) => {
+      const index = userSiteCatalog.value.findIndex((record) => record.id === recordId);
+      if (index === -1) {
+        return null;
+      }
+      const updated = {
+        ...userSiteCatalog.value[index],
+        ...updates
+      };
+      const clone = [...userSiteCatalog.value];
+      clone[index] = updated;
+      userSiteCatalog.value = clone;
+      return updated;
+    };
+
+    const onCategoryChange = async (newCategoryId) => {
+      if (!activeSiteId.value) {
+        return;
+      }
+      const { record: assignmentRecord } = ensureUserSiteRecord(activeUserId.value, activeSiteId.value);
+      if (assignmentRecord.categoryId === newCategoryId) {
+        return;
+      }
+      const updated = updateAssignmentRecord(assignmentRecord.id, {
+        categoryId: newCategoryId,
+        updatedAt: new Date().toISOString()
+      });
+      manualOverride.value = false;
+      const recalculated = await classifySiteForCategory(updated?.categoryId ?? newCategoryId);
+      classification.value = recalculated;
+      manualHelper.value =
+        recalculated === "Ocio"
+          ? "Toma un respiro profundo antes de continuar."
+          : "Excelente, estás dentro de los límites seguros.";
+      patchLatestVisit({ classification: recalculated, source: "auto" });
+    };
+
+    const toggleClassification = async () => {
+      if (classification.value === "-" || !activeSiteId.value) {
+        return;
+      }
+
+      if (!manualOverride.value) {
+        const newValue = classification.value === "Ocio" ? "No ocio" : "Ocio";
+        manualOverride.value = true;
+        classification.value = newValue;
+        manualHelper.value = "Clasificación ajustada manualmente.";
+        patchLatestVisit({ classification: newValue, source: "manual" });
+        return;
+      }
+
+      manualOverride.value = false;
+      const recalculated = await classifySiteForCategory(selectedCategoryId.value);
+      classification.value = recalculated;
+      manualHelper.value =
+        recalculated === "Ocio"
+          ? "Toma un respiro profundo antes de continuar."
+          : "Excelente, estás dentro de los límites seguros.";
+      patchLatestVisit({ classification: recalculated, source: "auto" });
+    };
+
+    onMounted(() => {
+      if (!isBrowserContext) {
+        isLoading.value = false;
+        headline.value = "Vista previa desde el entorno de desarrollo";
+        helperText.value =
+          "Abre el popup dentro de Chrome para registrar visitas reales. Aquí ves datos simulados.";
+        domain.value = "Disponible solo en el navegador";
+        return;
+      }
+
+      resolveActiveTab({ logVisit: true });
     });
 
-    // Elige el color de la etiqueta del tipo de contenido
-    const classificationTone = computed(() => {
-      const value = classification.value;
-      if (value === "Ocio") {
-        return "danger";
-      }
-      if (value === "No ocio") {
-        return "success";
-      }
-      return "neutral";
-    });
-
-    // Elige el color de la etiqueta del tipo de sitio web
-    const categoryTone = computed(() => {
-      const value = category.value.toLowerCase();
-      if (value.includes("productividad")) {
-        return "success";
-      }
-      if (value.includes("procrastinación")) {
-        return "danger";
-      }
-      if (value.includes("doble filo")) {
-        return "warning";
-      }
-      return "neutral";
-    });
-
-    // TODO: Posible cambio para dar feedback al contenido neutral
-    // Botón de feedback inhabilidado si el contenido es neutral
-    const manualButtonDisabled = computed(() => classification.value === "-");
-
-    // Mensaje del botón de feedback
-    const manualButtonLabel = computed(() =>
-      manualOverride.value ? "Marcar como ocio" : "Marcar como no ocio"
+    const activeUser = computed(
+      () => INITIAL_USERS.find((user) => user.id === activeUserId.value) ?? null
     );
 
-    // Mini mensaje que acompaña a la sección de tipo de contenido
+    const displayDomain = computed(() => {
+      if (isLoading.value) {
+        return "Analizando pestaña...";
+      }
+      return domain.value || "-";
+    });
+
+    const activeAssignment = computed(() => {
+      if (!activeSiteId.value) {
+        return null;
+      }
+      return (
+        userSiteCatalog.value.find(
+          (record) => record.userId === activeUserId.value && record.siteId === activeSiteId.value
+        ) ?? null
+      );
+    });
+
+    const selectedCategoryId = computed(
+      () => activeAssignment.value?.categoryId ?? DEFAULT_CATEGORY_ID
+    );
+
+    const activeCategory = computed(
+      () => CATEGORY_INDEX[selectedCategoryId.value] ?? CATEGORY_INDEX[DEFAULT_CATEGORY_ID]
+    );
+
+    const activeCategoryLabel = computed(() => activeCategory.value?.label ?? "Sin categoría");
+    const activeCategoryDescription = computed(() => activeCategory.value?.description ?? "");
+
+    const classificationLabel = computed(() => {
+      if (classification.value === "-") {
+        return "Sin datos";
+      }
+      return manualOverride.value ? `${classification.value} · corregido` : classification.value;
+    });
+
+    const classificationTone = computed(() => {
+      if (classification.value === "Ocio") {
+        return "danger";
+      }
+      if (classification.value === "No ocio") {
+        return "success";
+      }
+      return "neutral";
+    });
+
+    const categoryTone = computed(() => activeCategory.value?.tone ?? "neutral");
+
+    const manualButtonDisabled = computed(() => classification.value === "-" || !activeSiteId.value);
+
+    const manualButtonLabel = computed(() => {
+      if (manualOverride.value) {
+        return "Restaurar evaluación automática";
+      }
+      return classification.value === "Ocio" ? "Marcar como no ocio" : "Marcar como ocio";
+    });
+
+    const latestVisit = computed(() => {
+      if (!activeSiteId.value) {
+        return null;
+      }
+      return (
+        visitLog.value.find(
+          (visit) => visit.userId === activeUserId.value && visit.siteId === activeSiteId.value
+        ) ?? null
+      );
+    });
+
     const manualHint = computed(() => {
       if (classification.value === "-") {
         return "Esperando datos de la pestaña activa...";
@@ -212,110 +619,143 @@ const App = {
       if (manualOverride.value) {
         return "Aplicaste una corrección manual. Puedes revertirla cuando quieras.";
       }
-      return manualHelper.value;
+      if (!latestVisit.value) {
+        return "La próxima visita se guardará automáticamente.";
+      }
+      const sourceLabel = latestVisit.value.source === "manual" ? "corregido manualmente" : "analizado automáticamente";
+      return `Último registro ${formatRelativeTime(latestVisit.value.visitedAt)} (${sourceLabel}).`;
     });
 
-    // Se obtienen los datos de la ventana actual
-    const resolveActiveTab = async () => {
-      try {
-        errorMessage.value = "";
-        // Se usa la API de Chrome para saber qué pestaña está activa y enfocada
-        const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-        if (!activeTab?.url) { // Verifica si tiene una URL válida
-          errorMessage.value = "No se pudo identificar la pestaña actual.";
-          domain.value = "-";
-          category.value = "Sin datos";
-          classification.value = "-";
-          return;
-        }
-
-        // Obtenemos dominio
-        const currentUrl = new URL(activeTab.url);
-        const hostname = currentUrl.hostname;
-        domain.value = hostname;
-
-        // TODO: Registramos el dominio en la tabla "sitios_web" si es que no existe
-
-        // Obtenemos categoría del sitio
-        const tabCategory = getCategory(hostname);
-        category.value = tabCategory;
-
-        // Obtenemos si el contenido es de ocio o no
-        const resolved = await resolveLeisureClassification(activeTab.id, tabCategory);
-        classification.value = resolved;
-/*
-        try {
-          await sendDomainToBackend(hostname);
-        } catch (backendError) {
-          errorMessage.value =
-            "Se identificó la pestaña, pero no se pudo comunicar con el servidor.";
-        }
-*/
-        // Actualizamos los minimensajes del popup
-        manualOverride.value = false;
-        manualHelper.value =
-          resolved === "Ocio"
-            ? "Toma un respiro profundo antes de continuar."
-            : "Excelente, estás dentro de los límites seguros.";
-      } catch (error) {
-        console.error("Error al obtener la pestaña activa", error);
-        errorMessage.value = "Ocurrió un error al recuperar la pestaña actual.";
-        domain.value = "-";
-        category.value = "Sin datos";
-        classification.value = "-";
-      } finally {
-        isLoading.value = false;
+    const siteSummary = computed(() => {
+      if (!activeSiteId.value) {
+        return null;
       }
-    };
-
-    // Cambio manual de la clasificación del contenido
-    const toggleClassification = () => {
-      if (classification.value === "-") {
-        return;
-      }
-      classification.value = classification.value === "Ocio" ? "No ocio" : "Ocio";
-      manualOverride.value = !manualOverride.value;
-      if (manualOverride.value) {
-        manualHelper.value = "Clasificación ajustada manualmente.";
-      } else {
-        manualHelper.value =
-          classification.value === "Ocio"
-            ? "Toma un respiro profundo antes de continuar."
-            : "Excelente, estás dentro de los límites seguros.";
-      }
-    };
-
-    onMounted(() => {
-      if (!isBrowserContext) {
-        isLoading.value = false;
-        headline.value = "Vista previa no disponible";
-        helperText.value =
-          "Abre la extensión desde el navegador para analizar la pestaña activa y personalizar tu enfoque.";
-        domain.value = "Disponible solo en el navegador";
-        category.value = "Sin datos";
-        classification.value = "-";
-        return;
-      }
-
-      resolveActiveTab();
+      const site = findSiteById(activeSiteId.value);
+      const assignments = userSiteCatalog.value.filter((record) => record.siteId === activeSiteId.value);
+      const assignmentForUser = assignments.find((record) => record.userId === activeUserId.value) ?? null;
+      return {
+        hostname: site?.hostname ?? displayDomain.value,
+        firstSeenRelative: site?.createdAt ? formatRelativeTime(site.createdAt) : "Pendiente",
+        firstSeenLabel: formatDateTime(site?.createdAt ?? ""),
+        usersWithCategory: assignments.length,
+        notes: assignmentForUser?.notes ?? "",
+        updatedRelative: assignmentForUser?.updatedAt
+          ? formatRelativeTime(assignmentForUser.updatedAt)
+          : "Sin actualización",
+        updatedLabel: formatDateTime(assignmentForUser?.updatedAt ?? "")
+      };
     });
+
+    const totalVisitsForUser = computed(
+      () => visitLog.value.filter((visit) => visit.userId === activeUserId.value).length
+    );
+
+    const totalVisitsForActiveSite = computed(() =>
+      visitLog.value.filter(
+        (visit) => visit.userId === activeUserId.value && visit.siteId === activeSiteId.value
+      ).length
+    );
+
+    const visitsSnapshot = computed(() =>
+      visitLog.value
+        .filter((visit) => visit.userId === activeUserId.value)
+        .slice(0, 5)
+        .map((visit) => {
+          const site = findSiteById(visit.siteId);
+          const assignment = userSiteCatalog.value.find(
+            (record) => record.userId === activeUserId.value && record.siteId === visit.siteId
+          );
+          const category = CATEGORY_INDEX[assignment?.categoryId ?? DEFAULT_CATEGORY_ID];
+          return {
+            id: visit.id,
+            hostname: site?.hostname ?? "-",
+            categoryLabel: category.label,
+            categoryTone: category.tone ?? "neutral",
+            classification: visit.classification,
+            classificationTone: visit.classification === "Ocio" ? "danger" : "success",
+            visitedRelative: formatRelativeTime(visit.visitedAt),
+            visitedLabel: formatDateTime(visit.visitedAt),
+            sourceLabel: visit.source === "manual" ? "Manual" : "Automático"
+          };
+        })
+    );
+
+    const userAssignments = computed(() => {
+      const records = userSiteCatalog.value.filter((record) => record.userId === activeUserId.value);
+      return records
+        .map((record) => {
+          const site = findSiteById(record.siteId);
+          const category = CATEGORY_INDEX[record.categoryId] ?? CATEGORY_INDEX[DEFAULT_CATEGORY_ID];
+          return {
+            id: record.id,
+            hostname: site?.hostname ?? "-",
+            categoryLabel: category.label,
+            categoryTone: category.tone ?? "neutral",
+            updatedAt: record.updatedAt,
+            updatedRelative: record.updatedAt ? formatRelativeTime(record.updatedAt) : "Sin actualización",
+            updatedLabel: formatDateTime(record.updatedAt),
+            notes: record.notes
+          };
+        })
+        .sort((a, b) => {
+          const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+          const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+          return bTime - aTime;
+        })
+        .slice(0, 4);
+    });
+
+    const categoryDistribution = computed(() =>
+      CATEGORY_CATALOG.map((category) => {
+        const count = userSiteCatalog.value.filter(
+          (record) => record.userId === activeUserId.value && record.categoryId === category.id
+        ).length;
+        return { id: category.id, label: category.label, tone: category.tone ?? "neutral", count };
+      }).filter((item) => item.count > 0)
+    );
+
+    const activeUserAssignmentsCount = computed(
+      () => userSiteCatalog.value.filter((record) => record.userId === activeUserId.value).length
+    );
+
+    const totalCatalogSites = computed(() => siteCatalog.value.length);
+
+    const categoryOptions = CATEGORY_CATALOG.map((category) => ({
+      id: category.id,
+      label: category.label
+    }));
 
     return {
       isLoading,
       headline,
       helperText,
-      domain,
-      category,
-      classification,
+      users: INITIAL_USERS,
+      activeUserId,
+      activeUser,
+      displayDomain,
+      siteSummary,
+      errorMessage,
       classificationLabel,
       classificationTone,
       categoryTone,
+      activeCategoryLabel,
+      activeCategoryDescription,
+      categoryOptions,
+      selectedCategoryId,
       breakTimeMinutes,
       manualOverride,
       manualButtonDisabled,
       manualButtonLabel,
       manualHint,
-      errorMessage,
+      totalVisitsForUser,
+      totalVisitsForActiveSite,
+      visitsSnapshot,
+      userAssignments,
+      categoryDistribution,
+      activeUserAssignmentsCount,
+      totalCatalogSites,
+      onUserChange,
+      onCategoryChange,
       toggleClassification
     };
   },
@@ -326,78 +766,336 @@ const App = {
       createElement("p", { class: "popup__subtitle" }, ctx.helperText)
     ]);
 
-    const contextSection = createElement("section", { class: "popup__context" }, [
-      createElement(InfoBlock, {
-        icon: "🌐",
-        title: ctx.domain,
-        description: ctx.isLoading ? "Analizando la pestaña activa..." : ctx.errorMessage ? ctx.errorMessage : "Este es el sitio que estás visitando en este momento."
-      })
-    ]);
-
-    const statGrid = createElement("section", { class: "popup__stats" }, [
-      createElement(StatHighlight, {
-        icon: "🎯",
-        label: "Categoría",
-        value: ctx.category,
-        tone: ctx.categoryTone
-      }),
-      createElement(StatHighlight, {
-        icon: "🧭",
-        label: "Clasificación ocio",
-        value: ctx.classificationLabel,
-        subtitle: ctx.manualHint,
-        tone: ctx.classificationTone
-      }),
-      createElement(StatHighlight, {
-        icon: "⏱️",
-        label: "Descanso restante",
-        value: `${ctx.breakTimeMinutes} min`,
-        subtitle: "Planifica pausas breves para seguir con energía."
-      })
-    ]);
-
-    const actionsSection = createElement("section", { class: "popup__actions" }, [
+    const userOptions = ctx.users.map((user) =>
       createElement(
-        "button",
+        "option",
         {
-          class: ["action-button", ctx.manualButtonDisabled ? "action-button--disabled" : ""].join(" "),
-          disabled: ctx.manualButtonDisabled,
-          onClick: ctx.toggleClassification
+          value: user.id,
+          selected: user.id === ctx.activeUserId
         },
-        ctx.manualButtonDisabled ? "Esperando datos..." : ctx.manualButtonLabel
-      ),
-      createElement(
-        "p",
-        { class: "action-hint" },
-        ctx.manualButtonDisabled
-          ? "Necesitamos identificar la pestaña antes de permitir ajustes."
-          : "Usa este botón si la evaluación automática no se ajusta a tu realidad."
+        user.name
       )
+    );
+
+    const userPanel = createElement("section", { class: "panel" }, [
+      createElement("div", { class: "panel__header" }, [
+        createElement("span", { class: "panel__eyebrow" }, "Tabla usuarios"),
+        createElement(
+          "h2",
+          { class: "panel__title" },
+          ctx.activeUser ? ctx.activeUser.name : "Selecciona un usuario"
+        )
+      ]),
+      createElement("div", { class: "panel__content" }, [
+        createElement("label", { class: "field" }, [
+          createElement("span", { class: "field__label" }, "Usuario activo"),
+          createElement(
+            "select",
+            {
+              class: "field__control",
+              value: ctx.activeUserId,
+              onChange: (event) => ctx.onUserChange(event.target.value)
+            },
+            userOptions
+          )
+        ]),
+        ctx.activeUser
+          ? createElement("dl", { class: "definition-list" }, [
+              createElement("div", { class: "definition-list__row" }, [
+                createElement("dt", { class: "definition-list__label" }, "Correo"),
+                createElement("dd", { class: "definition-list__value" }, ctx.activeUser.email)
+              ]),
+              createElement("div", { class: "definition-list__row" }, [
+                createElement("dt", { class: "definition-list__label" }, "Sitios personalizados"),
+                createElement(
+                  "dd",
+                  { class: "definition-list__value" },
+                  `${ctx.activeUserAssignmentsCount} de ${ctx.totalCatalogSites}`
+                )
+              ])
+            ])
+          : null
+      ])
+    ]);
+
+    const sitePanel = createElement("section", { class: "panel" }, [
+      createElement("div", { class: "panel__header" }, [
+        createElement("span", { class: "panel__eyebrow" }, "Tabla sitios_web"),
+        createElement("h2", { class: "panel__title" }, ctx.displayDomain)
+      ]),
+      createElement("div", { class: "panel__content" }, [
+        ctx.errorMessage
+          ? createElement("p", { class: "panel__error" }, ctx.errorMessage)
+          : null,
+        ctx.siteSummary
+          ? createElement("ul", { class: "key-value-list" }, [
+              createElement("li", { class: "key-value-list__item" }, [
+                createElement("span", { class: "key-value-list__key" }, "Registrado"),
+                createElement(
+                  "span",
+                  {
+                    class: "key-value-list__value",
+                    title: ctx.siteSummary.firstSeenLabel
+                  },
+                  ctx.siteSummary.firstSeenRelative
+                )
+              ]),
+              createElement("li", { class: "key-value-list__item" }, [
+                createElement("span", { class: "key-value-list__key" }, "Usuarios con categoría"),
+                createElement(
+                  "span",
+                  { class: "key-value-list__value" },
+                  ctx.siteSummary.usersWithCategory
+                )
+              ]),
+              createElement("li", { class: "key-value-list__item" }, [
+                createElement("span", { class: "key-value-list__key" }, "Notas del usuario"),
+                createElement(
+                  "span",
+                  { class: "key-value-list__value" },
+                  ctx.siteSummary.notes ? ctx.siteSummary.notes : "Sin notas"
+                )
+              ]),
+              createElement("li", { class: "key-value-list__item" }, [
+                createElement("span", { class: "key-value-list__key" }, "Última personalización"),
+                createElement(
+                  "span",
+                  {
+                    class: "key-value-list__value",
+                    title: ctx.siteSummary.updatedLabel
+                  },
+                  ctx.siteSummary.updatedRelative
+                )
+              ])
+            ])
+          : createElement(
+              "p",
+              { class: "panel__helper" },
+              ctx.isLoading
+                ? "Buscando información de la pestaña activa..."
+                : "Cuando visites un sitio lo registraremos automáticamente."
+            )
+      ])
+    ]);
+
+    const statsPanel = createElement("section", { class: "stat-grid" }, [
+      createElement("article", { class: `stat-card stat-card--${ctx.categoryTone}` }, [
+        createElement("div", { class: "stat-card__icon" }, "🗂️"),
+        createElement("div", { class: "stat-card__body" }, [
+          createElement("span", { class: "stat-card__label" }, "Tabla sitios_web_usuario"),
+          createElement("span", { class: "stat-card__value" }, ctx.activeCategoryLabel),
+          createElement("p", { class: "stat-card__subtitle" }, ctx.activeCategoryDescription)
+        ])
+      ]),
+      createElement("article", { class: `stat-card stat-card--${ctx.classificationTone}` }, [
+        createElement("div", { class: "stat-card__icon" }, "🧭"),
+        createElement("div", { class: "stat-card__body" }, [
+          createElement("span", { class: "stat-card__label" }, "Clasificación de ocio"),
+          createElement("span", { class: "stat-card__value" }, ctx.classificationLabel),
+          createElement("p", { class: "stat-card__subtitle" }, ctx.manualHint)
+        ])
+      ]),
+      createElement("article", { class: "stat-card" }, [
+        createElement("div", { class: "stat-card__icon" }, "⏱️"),
+        createElement("div", { class: "stat-card__body" }, [
+          createElement("span", { class: "stat-card__label" }, "Pausa sugerida"),
+          createElement("span", { class: "stat-card__value" }, `${ctx.breakTimeMinutes} min`),
+          createElement(
+            "p",
+            { class: "stat-card__subtitle" },
+            `Visitas del usuario: ${ctx.totalVisitsForUser} · Visitas a este sitio: ${ctx.totalVisitsForActiveSite}`
+          )
+        ])
+      ])
+    ]);
+
+    const categoryOptions = ctx.categoryOptions.map((option) =>
+      createElement(
+        "option",
+        {
+          value: option.id,
+          selected: option.id === ctx.selectedCategoryId
+        },
+        option.label
+      )
+    );
+
+    const categoryPanel = createElement("section", { class: "panel" }, [
+      createElement("div", { class: "panel__header" }, [
+        createElement("span", { class: "panel__eyebrow" }, "Personaliza la categoría"),
+        createElement("h2", { class: "panel__title" }, "Sitios por usuario")
+      ]),
+      createElement("div", { class: "panel__content" }, [
+        createElement("label", { class: "field" }, [
+          createElement("span", { class: "field__label" }, "Categoría asignada"),
+          createElement(
+            "select",
+            {
+              class: "field__control",
+              value: ctx.selectedCategoryId,
+              onChange: (event) => ctx.onCategoryChange(event.target.value)
+            },
+            categoryOptions
+          )
+        ]),
+        createElement(
+          "div",
+          { class: "panel__actions" },
+          [
+            createElement(
+              "button",
+              {
+                class: [
+                  "action-button",
+                  ctx.manualButtonDisabled ? "action-button--disabled" : ""
+                ].join(" "),
+                disabled: ctx.manualButtonDisabled,
+                onClick: ctx.toggleClassification
+              },
+              ctx.manualButtonDisabled ? "Esperando datos..." : ctx.manualButtonLabel
+            )
+          ]
+        )
+      ])
+    ]);
+
+    const distributionList = ctx.categoryDistribution.length
+      ? createElement(
+          "ul",
+          { class: "distribution" },
+          ctx.categoryDistribution.map((item) =>
+            createElement("li", { class: "distribution__item" }, [
+              createElement(
+                "span",
+                { class: `badge badge--${item.tone}` },
+                `${item.label}`
+              ),
+              createElement("span", { class: "distribution__count" }, item.count)
+            ])
+          )
+        )
+      : createElement(
+          "p",
+          { class: "panel__helper" },
+          "Aún no asignas categorías personalizadas para este usuario."
+        );
+
+    const assignmentsList = ctx.userAssignments.length
+      ? createElement(
+          "ul",
+          { class: "assignments" },
+          ctx.userAssignments.map((assignment) =>
+            createElement("li", { class: "assignments__item" }, [
+              createElement("div", { class: "assignments__top" }, [
+                createElement("span", { class: "assignments__host" }, assignment.hostname),
+                createElement(
+                  "span",
+                  { class: `badge badge--${assignment.categoryTone}` },
+                  assignment.categoryLabel
+                )
+              ]),
+              createElement("p", { class: "assignments__notes" }, assignment.notes || "Sin notas"),
+              createElement(
+                "span",
+                { class: "assignments__meta", title: assignment.updatedLabel },
+                `Actualizado ${assignment.updatedRelative}`
+              )
+            ])
+          )
+        )
+      : createElement(
+          "p",
+          { class: "panel__helper" },
+          "Cuando personalices categorías aparecerán aquí."
+        );
+
+    const catalogPanel = createElement("section", { class: "panel" }, [
+      createElement("div", { class: "panel__header" }, [
+        createElement("span", { class: "panel__eyebrow" }, "Resumen por categorías"),
+        createElement("h2", { class: "panel__title" }, "Asignaciones recientes")
+      ]),
+      createElement("div", { class: "panel__content" }, [distributionList, assignmentsList])
+    ]);
+
+    const visitsRows = ctx.visitsSnapshot.length
+      ? ctx.visitsSnapshot.map((visit) =>
+          createElement("tr", { class: "visits__row" }, [
+            createElement("td", { class: "visits__cell" }, visit.hostname),
+            createElement(
+              "td",
+              { class: "visits__cell" },
+              createElement(
+                "span",
+                { class: `badge badge--${visit.categoryTone}` },
+                visit.categoryLabel
+              )
+            ),
+            createElement(
+              "td",
+              { class: "visits__cell" },
+              createElement(
+                "span",
+                { class: `badge badge--${visit.classificationTone}` },
+                visit.classification
+              )
+            ),
+            createElement(
+              "td",
+              { class: "visits__cell", title: visit.visitedLabel },
+              visit.visitedRelative
+            ),
+            createElement("td", { class: "visits__cell" }, visit.sourceLabel)
+          ])
+        )
+      : [
+          createElement("tr", { class: "visits__row" }, [
+            createElement(
+              "td",
+              { class: "visits__cell", colSpan: 5 },
+              "Aún no registramos visitas para este usuario."
+            )
+          ])
+        ];
+
+    const visitsPanel = createElement("section", { class: "panel" }, [
+      createElement("div", { class: "panel__header" }, [
+        createElement("span", { class: "panel__eyebrow" }, "Tabla sitios_web_visitados"),
+        createElement("h2", { class: "panel__title" }, "Visitas recientes")
+      ]),
+      createElement("div", { class: "panel__content" }, [
+        createElement("div", { class: "table-scroll" }, [
+          createElement("table", { class: "visits" }, [
+            createElement("thead", null, [
+              createElement("tr", { class: "visits__row" }, [
+                createElement("th", { class: "visits__head" }, "Dominio"),
+                createElement("th", { class: "visits__head" }, "Categoría"),
+                createElement("th", { class: "visits__head" }, "Clasificación"),
+                createElement("th", { class: "visits__head" }, "Registrado"),
+                createElement("th", { class: "visits__head" }, "Fuente")
+              ])
+            ]),
+            createElement("tbody", null, visitsRows)
+          ])
+        ])
+      ])
     ]);
 
     const footer = createElement("footer", { class: "popup__footer" }, [
       createElement(
-        "a",
-        {
-          class: "dashboard-link",
-          href: "http://localhost:5173",
-          target: "_blank",
-          rel: "noopener noreferrer"
-        },
-        "Abrir panel de control"
-      ),
-      createElement(
         "p",
         { class: "footer-hint" },
-        "Cultiva hábitos conscientes: pequeños ajustes constantes construyen grandes logros."
+        "Este panel refleja la regla de negocio: catálogo global, categoría por usuario y registro histórico."
       )
     ]);
 
     return createElement("div", { class: "popup" }, [
       heroSection,
-      contextSection,
-      statGrid,
-      actionsSection,
+      userPanel,
+      sitePanel,
+      statsPanel,
+      categoryPanel,
+      visitsPanel,
+      catalogPanel,
       footer
     ]);
   }
