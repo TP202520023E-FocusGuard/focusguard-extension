@@ -1,6 +1,5 @@
 import { computed, createApp, onMounted, ref } from "./libs/mini-vue.js";
 
-// TODO: Enlazar con la tabla de Sitios Web
 const CATEGORIES = {
   "youtube.com": "Doble filo",
   "facebook.com": "Procrastinación",
@@ -8,7 +7,6 @@ const CATEGORIES = {
   "google.com": "Neutral"
 };
 
-// TODO: Investigar como identificar palabras de ocio con la BD
 const LEISURE_KEYWORDS = ["VEGETTA777", "VEGETTA", "MINECRAFT"];
 const BREAK_TIME_MINUTES = 60;
 // const BACKEND_ENDPOINT = "https://tu-backend.com/api/registrar-dominio";

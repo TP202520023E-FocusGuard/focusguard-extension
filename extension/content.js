@@ -1,6 +1,9 @@
-const SHOW_DELAY_MS = 10_000;
-const LOCK_DURATION_MS = 30_000;
-const THROTTLE_MS = 200_000;
+//const SHOW_DELAY_MS = 10_000;
+const SHOW_DELAY_MS = 900_000;
+//const LOCK_DURATION_MS = 30_000;
+const LOCK_DURATION_MS = 5_000;
+//const THROTTLE_MS = 200_000;
+const THROTTLE_MS = 900_000;
 const BANNER_ROOT_ID = "focusguard-banner";
 const STYLE_TAG_ID = "focusguard-banner-styles";
 
