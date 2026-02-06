@@ -2,8 +2,6 @@ const USER_ID = 1;
 const DEFAULT_CATEGORY_ID = 1;
 const DEFAULT_ORIGIN = "default";
 
-let websites_tracking = [];
-
 const isHttpUrl = (url) => {
   try {
     const { protocol } = new URL(url);
@@ -79,10 +77,7 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
 
       let data3 = await response3.json();
 
-      websites_tracking.push({
-        id_tab: tabId,
-        id_web_visited: data3.id
-      });
+      chrome.storage.local.set({ [tabId.toString()]: data3.id }); // key -> tabId, value -> data3.id
 
     } catch (e) {
       console.error(e.message);
@@ -97,16 +92,16 @@ async function handleRemoved(tabId, removeInfo) {
   // TODO: Cuando se cierra una pestaña dónde no estoy
   // TODO: Cuando se cierra la ventana entera (todas las pestañas)
 
-  let tracking_id = websites_tracking.findIndex((element) => element.id_tab === tabId);
+  let web_visited = await chrome.storage.local.get(tabId.toString());
 
-  if (tracking_id === -1) return;
+  if (web_visited[tabId] === undefined) return; // verificamos si el web_visited no está vació ({})
 
-  const website_tracked = websites_tracking[tracking_id];
-  websites_tracking.splice(tracking_id, 1);
+  let id_web_visited = web_visited[tabId];
+
   let web_visited_updated = {fecha_hora_salida: new Date(Date.now())};
 
   try {
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/website-visited/${website_tracked.id_web_visited}`, {
+    let response = await fetch(`http://127.0.0.1:8000/api/v1/website-visited/${id_web_visited}`, {
       method: "PATCH",
       body: JSON.stringify(web_visited_updated),
       headers: {
@@ -116,6 +111,8 @@ async function handleRemoved(tabId, removeInfo) {
 
     if (!response.ok)
       throw new Error(`Error al actualizar la salida en website-user-visited: ${response.status}`);
+
+    chrome.storage.local.remove(tabId.toString());
 
   } catch (e) {
     console.error(e.message);
