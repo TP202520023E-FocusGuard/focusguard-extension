@@ -2,49 +2,61 @@ const USER_ID = 1;
 const DEFAULT_CATEGORY_ID = 1;
 const DEFAULT_ORIGIN = "default";
 
+const isHttpUrl = (url) => {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
 async function handleUpdated(tabId, changeInfo, tabInfo) {
   // todo Caso 1: Se abre la pestaña (Creo que no importa)
   // todo Caso 3: Se cierra la pestaña
 
   // Caso 2: Se actualiza la pestaña
-  if(changeInfo.url) {
+  if(changeInfo.status === 'complete' && tabInfo.url) {
 
-    const input = { dominio: new URL(changeInfo.url).hostname };
+    if (!isHttpUrl(tabInfo.url)) return;
+
+    let new_website = { dominio: new URL(tabInfo.url).hostname };
 
     try {
-      let response = await fetch(`http://127.0.0.1:8000/api/v1/websites`, {
+      let response1 = await fetch(`http://127.0.0.1:8000/api/v1/websites`, {
         method: "POST",
-        body: JSON.stringify(input),
+        body: JSON.stringify(new_website),
         headers: {
           "Content-Type": "application/json",
         },
       });
 
-      let data = await response.json();
-      var id_web = data.id;
-    } catch (e) {
-      console.error("Error websites:", e)
-    }
+      if (!response1.ok)
+        throw new Error(`Error en websites: ${response1.status}`);
 
-    const input2 = {
-      id_usuarios: USER_ID,
-      id_sitios_web: id_web,
-      id_categorias_web: DEFAULT_CATEGORY_ID,
-      origen: DEFAULT_ORIGIN
-    };
+      let data = await response1.json();
+      let id_web = data.id;
 
+      const new_website_user = {
+        id_usuarios: USER_ID,
+        id_sitios_web: id_web,
+        id_categorias_web: DEFAULT_CATEGORY_ID,
+        origen: DEFAULT_ORIGIN
+      };
 
-    try {
-      let response = await fetch(`http://127.0.0.1:8000/api/v1/website-users`, {
+      let response2 = await fetch(`http://127.0.0.1:8000/api/v1/website-users`, {
         method: "POST",
-        body: JSON.stringify(input2),
+        body: JSON.stringify(new_website_user),
         headers: {
           "Content-Type": "application/json",
         },
       });
 
+      if (!response2.ok)
+        throw new Error(`Error en website-users: ${response2.status}`);
+
     } catch (e) {
-      console.error("Error website-users:", e)
+      console.error(e.message);
     }
 
   }
