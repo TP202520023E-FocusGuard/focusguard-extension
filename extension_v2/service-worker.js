@@ -2,6 +2,8 @@ const USER_ID = 1;
 const DEFAULT_CATEGORY_ID = 1;
 const DEFAULT_ORIGIN = "default";
 
+let websites_tracking = [];
+
 const isHttpUrl = (url) => {
   try {
     const { protocol } = new URL(url);
@@ -75,6 +77,13 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
       if (!response3.ok)
         throw new Error(`Error en website-user-visited: ${response3.status}`);
 
+      let data3 = await response3.json();
+
+      websites_tracking.push({
+        id_tab: tabId,
+        id_web_visited: data3.id
+      });
+
     } catch (e) {
       console.error(e.message);
     }
@@ -83,4 +92,37 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
 
 }
 
+async function handleRemoved(tabId, removeInfo) {
+  // TODO: Cuando se cierra la pestaña dónde estoy
+  // TODO: Cuando se cierra una pestaña dónde no estoy
+  // TODO: Cuando se cierra la ventana entera (todas las pestañas)
+
+  let tracking_id = websites_tracking.findIndex((element) => element.id_tab === tabId);
+
+  if (tracking_id === -1) return;
+
+  const website_tracked = websites_tracking[tracking_id];
+  websites_tracking.splice(tracking_id, 1);
+  let web_visited_updated = {fecha_hora_salida: new Date(Date.now())};
+
+  try {
+    let response = await fetch(`http://127.0.0.1:8000/api/v1/website-visited/${website_tracked.id_web_visited}`, {
+      method: "PATCH",
+      body: JSON.stringify(web_visited_updated),
+      headers: {
+        "Content-Type": "application/json",
+      }
+    });
+
+    if (!response.ok)
+      throw new Error(`Error al actualizar la salida en website-user-visited: ${response.status}`);
+
+  } catch (e) {
+    console.error(e.message);
+  }
+
+}
+
 chrome.tabs.onUpdated.addListener(handleUpdated);
+
+chrome.tabs.onRemoved.addListener(handleRemoved);
