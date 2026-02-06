@@ -55,6 +55,26 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
       if (!response2.ok)
         throw new Error(`Error en website-users: ${response2.status}`);
 
+      let data2 = await response2.json();
+      let id_web_user = data2.id;
+
+      let new_web_visited = {
+        id_usuarios: USER_ID,
+        id_sitios_web_usuario: id_web_user,
+        fecha_hora_ingreso: new Date(Date.now())
+      };
+
+      let response3 = await fetch(`http://127.0.0.1:8000/api/v1/website-visited`, {
+        method: "POST",
+        body: JSON.stringify(new_web_visited),
+        headers: {
+          "Content-Type": "application/json",
+        }
+      });
+
+      if (!response3.ok)
+        throw new Error(`Error en website-user-visited: ${response3.status}`);
+
     } catch (e) {
       console.error(e.message);
     }
