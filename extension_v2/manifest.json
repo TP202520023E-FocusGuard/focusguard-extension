@@ -22,5 +22,13 @@
     },
     "default_popup": "popup.html"
   },
-  "permissions": ["scripting", "activeTab", "tabs", "storage"]
+  "permissions": ["scripting", "activeTab", "tabs", "storage"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["intervention/component/level-one-intervention.js",
+             "intervention/component/level-two-intervention.js"]
+    }
+  ]
+
 }
