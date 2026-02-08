@@ -12,16 +12,21 @@ const isHttpUrl = (url) => {
 };
 
 async function handleUpdated(tabId, changeInfo, tabInfo) {
-  // todo Caso 1: Se abre la pestaña (Creo que no importa)
-  // todo Caso 3: Se cierra la pestaña
 
-  // Caso 2: Se actualiza la pestaña
   if(changeInfo.status === 'complete' && tabInfo.url) {
 
     if (!isHttpUrl(tabInfo.url)) return;
 
-    let new_hostname = new URL(tabInfo.url).hostname;
+    let same_tab = await chrome.storage.local.get(tabId.toString());
 
+    if (!(same_tab[tabId] === undefined)) {
+      let id_web_before = same_tab[tabId];
+      let web_before_updated = {fecha_hora_salida: new Date(Date.now())};
+
+      await register_departuretime_web(id_web_before, web_before_updated);
+    }
+
+    let new_hostname = new URL(tabInfo.url).hostname;
     await complete_register_web(tabId, new_hostname);
 
   }
@@ -29,8 +34,7 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
 }
 
 async function handleRemoved(tabId, removeInfo) {
-  // TODO: Cuando se cierra la pestaña dónde estoy
-  // TODO: Cuando se cierra una pestaña dónde no estoy
+
   // TODO: Cuando se cierra la ventana entera (todas las pestañas)
 
   let web_visited = await chrome.storage.local.get(tabId.toString());
@@ -46,21 +50,7 @@ async function handleRemoved(tabId, removeInfo) {
   // Solo se registra la salida de la web si la pestaña que estamos cerrando es la activa sino esto
   // quiere decir que ya hemos registrado su salida al cambiar a otra pestaña
   if (tabId === last_web["last_web_activated"]) {
-    try {
-      let response = await fetch(`http://127.0.0.1:8000/api/v1/website-visited/${id_web_visited}`, {
-        method: "PATCH",
-        body: JSON.stringify(web_visited_updated),
-        headers: {
-          "Content-Type": "application/json",
-        }
-      });
-
-      if (!response.ok)
-        throw new Error(`Error al actualizar la salida en website-user-visited: ${response.status}`);
-
-    } catch (e) {
-      console.error(e.message);
-    }
+    await register_departuretime_web(id_web_visited, web_visited_updated);
   }
 
   chrome.storage.local.remove(tabId.toString());
@@ -194,6 +184,24 @@ async function complete_register_web(tabId, hostname) {
 
     // GUARDAMOS EL ID DE LA PESTAÑA JUNTO CON SU ID DE WEBSITE_VISITADO EN LA BD
     chrome.storage.local.set({ [tabId.toString()]: data3.id }); // key -> tabId, value -> data3.id
+
+  } catch (e) {
+    console.error(e.message);
+  }
+}
+
+async function register_departuretime_web(id_web, web_updated) {
+  try {
+    let response = await fetch(`http://127.0.0.1:8000/api/v1/website-visited/${id_web}`, {
+      method: "PATCH",
+      body: JSON.stringify(web_updated),
+      headers: {
+        "Content-Type": "application/json",
+      }
+    });
+
+    if (!response.ok)
+      throw new Error(`Error al actualizar la salida en website-user-visited: ${response.status}`);
 
   } catch (e) {
     console.error(e.message);
