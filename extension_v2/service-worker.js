@@ -23,6 +23,9 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
     let new_website = { dominio: new URL(tabInfo.url).hostname };
 
     try {
+
+      // REGISTRAMOS EL WEBSITE EN LA BD
+
       let response1 = await fetch(`http://127.0.0.1:8000/api/v1/websites`, {
         method: "POST",
         body: JSON.stringify(new_website),
@@ -44,6 +47,8 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
         origen: DEFAULT_ORIGIN
       };
 
+      // REGISTRAMOS EL WEBSITE POR USUARIO EN LA BD
+
       let response2 = await fetch(`http://127.0.0.1:8000/api/v1/website-users`, {
         method: "POST",
         body: JSON.stringify(new_website_user),
@@ -64,6 +69,8 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
         fecha_hora_ingreso: new Date(Date.now())
       };
 
+      // REGISTRAMOS LA FECHA DE ENTRADA AL WEBSITE EN LA BD
+
       let response3 = await fetch(`http://127.0.0.1:8000/api/v1/website-visited`, {
         method: "POST",
         body: JSON.stringify(new_web_visited),
@@ -77,7 +84,18 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
 
       let data3 = await response3.json();
 
+      // GUARDAMOS EL ID DE LA PESTAÑA JUNTO CON SU ID DE WEBSITE_VISITADO EN LA BD
       chrome.storage.local.set({ [tabId.toString()]: data3.id }); // key -> tabId, value -> data3.id
+
+      /*
+      chrome.storage.local.set({
+        focusguard_webs: {
+          tab_id: tabId,
+          db_id: data3.id
+        }
+      });
+
+       */
 
     } catch (e) {
       console.error(e.message);
@@ -93,11 +111,59 @@ async function handleRemoved(tabId, removeInfo) {
   // TODO: Cuando se cierra la ventana entera (todas las pestañas)
 
   let web_visited = await chrome.storage.local.get(tabId.toString());
+  let last_web = await chrome.storage.local.get("last_web_activated");
 
-  if (web_visited[tabId] === undefined) return; // verificamos si el web_visited no está vació ({})
+  if (web_visited[tabId] === undefined) return; // verificamos si el web_visited existe
+  if (last_web["last_web_activated"] === undefined) return;
 
   let id_web_visited = web_visited[tabId];
 
+  let web_visited_updated = {fecha_hora_salida: new Date(Date.now())};
+
+  // Solo se registra la salida de la web si la pestaña que estamos cerrando es la activa sino esto
+  // quiere decir que ya hemos registrado su salida al cambiar a otra pestaña
+  if (tabId === last_web["last_web_activated"]) {
+    try {
+      let response = await fetch(`http://127.0.0.1:8000/api/v1/website-visited/${id_web_visited}`, {
+        method: "PATCH",
+        body: JSON.stringify(web_visited_updated),
+        headers: {
+          "Content-Type": "application/json",
+        }
+      });
+
+      if (!response.ok)
+        throw new Error(`Error al actualizar la salida en website-user-visited: ${response.status}`);
+
+    } catch (e) {
+      console.error(e.message);
+    }
+  }
+
+  chrome.storage.local.remove(tabId.toString());
+
+}
+
+async function handleActivated(activeInfo) {
+
+  let last_web = await chrome.storage.local.get("last_web_activated");
+
+  // verificamos si existe alguna web anterior o si esta será la primera
+  if (last_web["last_web_activated"] === undefined) {
+    chrome.storage.local.set({ last_web_activated: activeInfo.tabId });
+    return;
+  }
+
+  let last_tabId = last_web["last_web_activated"];
+  let web_visited = await chrome.storage.local.get(last_tabId.toString());
+
+  // verificamos si el web_visited existe
+  if (web_visited[last_tabId.toString()] === undefined) {
+    chrome.storage.local.set({ last_web_activated: activeInfo.tabId });
+    return;
+  }
+
+  let id_web_visited = web_visited[last_tabId.toString()];
   let web_visited_updated = {fecha_hora_salida: new Date(Date.now())};
 
   try {
@@ -110,16 +176,26 @@ async function handleRemoved(tabId, removeInfo) {
     });
 
     if (!response.ok)
-      throw new Error(`Error al actualizar la salida en website-user-visited: ${response.status}`);
+      throw new Error(`Error en handleActivated() al actualizar la salida en website-user-visited: ${response.status}`);
 
-    chrome.storage.local.remove(tabId.toString());
+    //chrome.storage.local.remove(last_tabId.toString());
 
   } catch (e) {
     console.error(e.message);
   }
+
+  chrome.storage.local.set({ last_web_activated: activeInfo.tabId });
+
+  // _______________________________________________________
+  // SE REGISTRA LA NUEVA PESTAÑA A DÓNDE SE ESTÁ INGRESANDO
+  // _______________________________________________________
+
+
 
 }
 
 chrome.tabs.onUpdated.addListener(handleUpdated);
 
 chrome.tabs.onRemoved.addListener(handleRemoved);
+
+chrome.tabs.onActivated.addListener(handleActivated);
