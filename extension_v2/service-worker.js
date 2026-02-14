@@ -2,6 +2,12 @@ const USER_ID = 1;
 const DEFAULT_CATEGORY_ID = 1;
 const DEFAULT_ORIGIN = "default";
 
+chrome.runtime.onInstalled.addListener(async ({ reason }) => {
+  if (reason !== 'install') return;
+
+  await chrome.alarms.create('pulse', { periodInMinutes: 1 });
+});
+
 const isHttpUrl = (url) => {
   try {
     const { protocol } = new URL(url);
@@ -40,7 +46,7 @@ async function handleRemoved(tabId, removeInfo) {
   let web_visited = await chrome.storage.local.get(tabId.toString());
   let last_web = await chrome.storage.local.get("last_web_activated");
 
-  if (web_visited[tabId] === undefined) return; // verificamos si el web_visited existe
+  if (web_visited[tabId.toString()] === undefined) return; // verificamos si el web_visited existe
   if (last_web["last_web_activated"] === undefined) return;
 
   let id_web_visited = web_visited[tabId];
@@ -66,7 +72,6 @@ async function handleActivated(activeInfo) {
     chrome.storage.local.set({ last_web_activated: activeInfo.tabId });
     return;
   }
-
   let last_tabId = last_web["last_web_activated"];
   let web_visited = await chrome.storage.local.get(last_tabId.toString());
 
@@ -76,23 +81,7 @@ async function handleActivated(activeInfo) {
   // Si el ultimo web_visited existe en el local storage entonces se hace el try-catch
   // Cuando puede no existir?: Cuando la ultima web no es http
   if (!(web_visited[last_tabId.toString()] === undefined)) {
-    try {
-      let response = await fetch(`http://127.0.0.1:8000/api/v1/website-visited/${id_web_visited}`, {
-        method: "PATCH",
-        body: JSON.stringify(web_visited_updated),
-        headers: {
-          "Content-Type": "application/json",
-        }
-      });
-
-      if (!response.ok)
-        throw new Error(`Error en handleActivated() al actualizar la salida en website-user-visited: ${response.status}`);
-
-      //chrome.storage.local.remove(last_tabId.toString());
-
-    } catch (e) {
-      console.error(e.message);
-    }
+    await register_departuretime_web(id_web_visited, web_visited_updated);
   }
 
   chrome.storage.local.set({ last_web_activated: activeInfo.tabId });
@@ -208,8 +197,51 @@ async function register_departuretime_web(id_web, web_updated) {
   }
 }
 
+async function checkAlarmState() {
+  const alarm = await chrome.alarms.get("pulse");
+
+  if (!alarm) {
+    await chrome.alarms.create("pulse", { periodInMinutes: 1 });
+  }
+}
+
+function reconciliarDatosHuérfanos() {
+  // - Leertodo lo que haya en el storage.
+  // - Si hay IDs pendientes, cerrarlos en la BD.
+  // - Limpiar el storage.
+}
+
+
+// ALARMS
+// 1. En que momento crearlo/instalarlo
+// 2. Si no hay un last_activated_id entonces no se registra nada
+
+async function handleAlarm(alarm) {
+
+  if (alarm.name !== "pulse") return;
+
+  let last_web = await chrome.storage.local.get("last_web_activated");
+
+  if (last_web["last_web_activated"] === undefined) return;
+
+  let last_tabId = last_web["last_web_activated"];
+  let web_visited = await chrome.storage.local.get(last_tabId.toString());
+
+  if (web_visited[last_tabId.toString()] === undefined) return;
+
+  let id_web_visited = web_visited[last_tabId.toString()];
+  let web_visited_updated = {fecha_hora_salida: new Date(Date.now())};
+
+  await register_departuretime_web(id_web_visited, web_visited_updated);
+
+}
+
+
 chrome.tabs.onUpdated.addListener(handleUpdated);
 
 chrome.tabs.onRemoved.addListener(handleRemoved);
 
 chrome.tabs.onActivated.addListener(handleActivated);
+
+chrome.alarms.onAlarm.addListener(handleAlarm);
+checkAlarmState();
