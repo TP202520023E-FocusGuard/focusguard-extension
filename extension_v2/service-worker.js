@@ -23,13 +23,18 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
 
     if (!isHttpUrl(tabInfo.url)) return;
 
-    let same_tab = await chrome.storage.local.get(tabId.toString());
+    //let same_tab = await chrome.storage.local.get(tabId.toString());
+    let { tabs_tracking } = await chrome.storage.local.get("tabs_tracking");
 
-    if (!(same_tab[tabId] === undefined)) {
-      let id_web_before = same_tab[tabId];
-      let web_before_updated = {fecha_hora_salida: new Date(Date.now())};
+    if (tabs_tracking) {
 
-      await register_departuretime_web(id_web_before, web_before_updated);
+      let id_web_before = tabs_tracking[tabId.toString()];
+
+      if (!(id_web_before === undefined)) {
+        let web_before_updated = { fecha_hora_salida: new Date(Date.now()) };
+        await register_departuretime_web(id_web_before, web_before_updated);
+      }
+
     }
 
     let new_hostname = new URL(tabInfo.url).hostname;
@@ -43,48 +48,45 @@ async function handleRemoved(tabId, removeInfo) {
 
   // TODO: Cuando se cierra la ventana entera (todas las pestañas)
 
-  let web_visited = await chrome.storage.local.get(tabId.toString());
-  let last_web = await chrome.storage.local.get("last_web_activated");
+  let { tabs_tracking = {} } = await chrome.storage.local.get("tabs_tracking");
+  let db_id_visited = tabs_tracking[tabId.toString()];
+  if (!db_id_visited) return; // verificamos si el db_id_visited existe
 
-  if (web_visited[tabId.toString()] === undefined) return; // verificamos si el web_visited existe
-  if (last_web["last_web_activated"] === undefined) return;
-
-  let id_web_visited = web_visited[tabId];
-
-  let web_visited_updated = {fecha_hora_salida: new Date(Date.now())};
+  let { last_web_activated } = await chrome.storage.local.get("last_web_activated");
+  let web_visited_updated = { fecha_hora_salida: new Date(Date.now()) };
 
   // Solo se registra la salida de la web si la pestaña que estamos cerrando es la activa sino esto
   // quiere decir que ya hemos registrado su salida al cambiar a otra pestaña
-  if (tabId === last_web["last_web_activated"]) {
-    await register_departuretime_web(id_web_visited, web_visited_updated);
+  if (tabId === last_web_activated) {
+    await register_departuretime_web(db_id_visited, web_visited_updated);
   }
 
-  chrome.storage.local.remove(tabId.toString());
+  delete tabs_tracking[tabId.toString()];
+  await chrome.storage.local.set({"tabs_tracking": tabs_tracking});
 
 }
 
 async function handleActivated(activeInfo) {
 
-  let last_web = await chrome.storage.local.get("last_web_activated");
+  let { last_web_activated } = await chrome.storage.local.get("last_web_activated");
 
   // verificamos si existe alguna web anterior o si esta será la primera
-  if (last_web["last_web_activated"] === undefined) {
-    chrome.storage.local.set({ last_web_activated: activeInfo.tabId });
+  if (!last_web_activated) {
+    await chrome.storage.local.set({ "last_web_activated": activeInfo.tabId });
     return;
   }
-  let last_tabId = last_web["last_web_activated"];
-  let web_visited = await chrome.storage.local.get(last_tabId.toString());
 
-  let id_web_visited = web_visited[last_tabId.toString()];
-  let web_visited_updated = {fecha_hora_salida: new Date(Date.now())};
+  let { tabs_tracking = {} } = await chrome.storage.local.get("tabs_tracking");
+  let db_id_visited = tabs_tracking[last_web_activated.toString()];
 
   // Si el ultimo web_visited existe en el local storage entonces se hace el try-catch
   // Cuando puede no existir?: Cuando la ultima web no es http
-  if (!(web_visited[last_tabId.toString()] === undefined)) {
-    await register_departuretime_web(id_web_visited, web_visited_updated);
+  if (db_id_visited) {
+    let web_visited_updated = { fecha_hora_salida: new Date(Date.now()) };
+    await register_departuretime_web(db_id_visited, web_visited_updated);
   }
 
-  chrome.storage.local.set({ last_web_activated: activeInfo.tabId });
+  await chrome.storage.local.set({ "last_web_activated": activeInfo.tabId });
 
   // __________________________________________
   // REGISTRO DE INGRESO A PESTAÑA YA EXISTENTE
@@ -92,12 +94,11 @@ async function handleActivated(activeInfo) {
 
   let tab_info = await chrome.tabs.get(activeInfo.tabId);
 
-  if(tab_info.status === 'complete' && tab_info.url) {
+  if(tab_info.url) {
 
     if (!isHttpUrl(tab_info.url)) return;
 
     let activated_hostname = new URL(tab_info.url).hostname;
-
     await complete_register_web(activeInfo.tabId, activated_hostname);
 
   }
@@ -172,7 +173,10 @@ async function complete_register_web(tabId, hostname) {
     let data3 = await response3.json();
 
     // GUARDAMOS EL ID DE LA PESTAÑA JUNTO CON SU ID DE WEBSITE_VISITADO EN LA BD
-    chrome.storage.local.set({ [tabId.toString()]: data3.id }); // key -> tabId, value -> data3.id
+    let { tabs_tracking = {} } = await chrome.storage.local.get("tabs_tracking");
+    tabs_tracking[tabId.toString()] = data3.id;
+
+    await chrome.storage.local.set({"tabs_tracking": tabs_tracking});
 
   } catch (e) {
     console.error(e.message);
@@ -197,6 +201,23 @@ async function register_departuretime_web(id_web, web_updated) {
   }
 }
 
+async function handleAlarm(alarm) {
+
+  if (alarm.name !== "pulse") return;
+
+  let { last_web_activated } = await chrome.storage.local.get("last_web_activated");
+  if (!last_web_activated) return;
+
+  let { tabs_tracking = {} } = await chrome.storage.local.get("tabs_tracking");
+  let db_id_visited = tabs_tracking[last_web_activated.toString()];
+  if (!db_id_visited) return;
+
+  let web_visited_updated = { fecha_hora_salida: new Date(Date.now()) };
+
+  await register_departuretime_web(db_id_visited, web_visited_updated);
+
+}
+
 async function checkAlarmState() {
   const alarm = await chrome.alarms.get("pulse");
 
@@ -205,37 +226,15 @@ async function checkAlarmState() {
   }
 }
 
-function reconciliarDatosHuérfanos() {
-  // - Leertodo lo que haya en el storage.
-  // - Si hay IDs pendientes, cerrarlos en la BD.
-  // - Limpiar el storage.
+async function handleOnStartup() {
+  try {
+    await chrome.storage.local.remove(["tabs_tracking", "last_web_activated"]);
+  } catch (e) {
+    console.error(e.message);
+  }
 }
 
-
-// ALARMS
-// 1. En que momento crearlo/instalarlo
-// 2. Si no hay un last_activated_id entonces no se registra nada
-
-async function handleAlarm(alarm) {
-
-  if (alarm.name !== "pulse") return;
-
-  let last_web = await chrome.storage.local.get("last_web_activated");
-
-  if (last_web["last_web_activated"] === undefined) return;
-
-  let last_tabId = last_web["last_web_activated"];
-  let web_visited = await chrome.storage.local.get(last_tabId.toString());
-
-  if (web_visited[last_tabId.toString()] === undefined) return;
-
-  let id_web_visited = web_visited[last_tabId.toString()];
-  let web_visited_updated = {fecha_hora_salida: new Date(Date.now())};
-
-  await register_departuretime_web(id_web_visited, web_visited_updated);
-
-}
-
+chrome.runtime.onStartup.addListener(handleOnStartup);
 
 chrome.tabs.onUpdated.addListener(handleUpdated);
 
