@@ -73,15 +73,18 @@ async function handleActivated(activeInfo) {
     return;
   }
 
-  let { tabs_tracking = {} } = await chrome.storage.local.get("tabs_tracking");
-  let db_id_visited = tabs_tracking[last_web_activated.toString()];
+  let { focus_chrome } = await chrome.storage.local.get("focus_chrome");
+  if (focus_chrome) {
 
-  // Si el ultimo web_visited existe en el local storage entonces se hace el try-catch
-  // Cuando puede no existir?: Cuando la ultima web no es http
-  if (db_id_visited) {
-    let web_visited_updated = { fecha_hora_salida: new Date(Date.now()) };
-    await register_departuretime_web(db_id_visited, web_visited_updated);
-  }
+    let { tabs_tracking = {} } = await chrome.storage.local.get("tabs_tracking");
+    let db_id_visited = tabs_tracking[last_web_activated.toString()];
+
+    // Si el ultimo web_visited existe en el local storage entonces se hace el try-catch
+    // Cuando puede no existir?: Cuando la ultima web no es http
+    if (db_id_visited)
+      await register_departuretime_web(db_id_visited, { fecha_hora_salida: new Date(Date.now()) });
+
+  } else await setFocusChrome(true);
 
   await chrome.storage.local.set({ "last_web_activated": activeInfo.tabId });
 
@@ -192,6 +195,7 @@ async function register_departuretime_web(id_web, web_updated) {
   }
 }
 
+/*
 async function handleAlarm(alarm) {
 
   const { focus_chrome, last_web_activated, tabs_tracking = {} } = await chrome.storage.local.get(null);
@@ -204,6 +208,48 @@ async function handleAlarm(alarm) {
   if (!db_id_visited) return;
 
   await register_departuretime_web(db_id_visited, { fecha_hora_salida: new Date(Date.now()) });
+}
+*/
+
+async function handleAlarm(alarm) {
+  if (alarm.name !== "pulse") return;
+
+  // 1. AUDITORÍA FORZADA DE FOCO (Polling)
+  let anyWindowFocused = false;
+  try {
+    const windows = await chrome.windows.getAll({ populate: false });
+    anyWindowFocused = windows.some(win => win.focused === true);
+    let { focus_chrome } = await chrome.storage.local.get("focus_chrome");
+
+    // Si ninguna ventana tiene foco real, forzamos la salida aunque el evento fallara
+    if (!anyWindowFocused) {
+      if (focus_chrome === false) {
+        console.log("[Policía de Foco] Sigue fuera de chrome, no se registra salida otra vez");
+        return;
+      } // No volvemos a registrar salida para el mismo last_web
+      console.log("[Policía de Foco] Detectada salida omitida por el sistema.");
+      await setFocusChrome(false);
+
+      // Registramos la salida en la BD si el estado anterior era true
+      let { last_web_activated, tabs_tracking = {} } = await chrome.storage.local.get(null);
+      if (last_web_activated) {
+        let db_id = tabs_tracking[last_web_activated.toString()];
+        if (db_id) await register_departuretime_web(db_id, { fecha_hora_salida: new Date() });
+      }
+      return; // Salimos, no hay nada que pulsar
+    } else await setFocusChrome(true);
+  } catch (e) {
+    console.error("Error en auditoría de alarma:", e);
+  }
+
+  // 2. LÓGICA DE PULSO NORMAL (Si hay foco)
+  const { focus_chrome, last_web_activated, tabs_tracking = {} } = await chrome.storage.local.get(null);
+  if (focus_chrome === false || !last_web_activated) return;
+
+  let db_id_visited = tabs_tracking[last_web_activated.toString()];
+  if (db_id_visited) {
+    await register_departuretime_web(db_id_visited, { fecha_hora_salida: new Date() });
+  }
 }
 
 async function checkAlarmState() {
@@ -229,7 +275,7 @@ let focusTimeout = null;
 
 async function setFocusChrome(isFocused) {
   await chrome.storage.local.set({"focus_chrome": isFocused});
-  let { focus_chrome } = await chrome.storage.local.get("focus_chrome")
+  let { focus_chrome } = await chrome.storage.local.get("focus_chrome");
   console.log("Esta en chrome?: ", focus_chrome);
 }
 
@@ -247,7 +293,8 @@ async function handleWindowsChanged(windowId) {
     focusTimeout = null;
   }
 
-  let { focus_chrome } = await chrome.storage.local.get("focus_chrome")
+  let { focus_chrome } = await chrome.storage.local.get("focus_chrome");
+  console.log("Se ejecutó el handleWindowsChanged");
 
   // Si el usuario ya no está dentro de Chrome
   if (windowId === chrome.windows.WINDOW_ID_NONE) {
@@ -256,11 +303,10 @@ async function handleWindowsChanged(windowId) {
     focusTimeout = setTimeout(async () => {
       // --- VERIFICACIÓN DE SEGURIDAD ---
 
-      // 1. Obtenemos la última ventana que tuvo el foco
       let lastWin;
 
       try {
-        // Intentamos obtener la última ventana
+        // Intentamos obtener la última ventana que tuvo el foco
         lastWin = await chrome.windows.getLastFocused();
       } catch (e) {
         // Si da error, significa que NO HAY ventanas (Chrome se cerró)
@@ -288,7 +334,7 @@ async function handleWindowsChanged(windowId) {
          el usuario siguen en chrome y simplemente a abierto una extensión*/
       const contexts = await chrome.runtime.getContexts({
         //contextTypes: ['POPUP', 'TAB', 'BACKGROUND', 'OFFSCREEN_DOCUMENT', 'SIDE_PANEL', 'DEVELOPER_TOOLS']
-        contextTypes: ['POPUP','BACKGROUND', 'SIDE_PANEL', 'DEVELOPER_TOOLS']
+        contextTypes: ['POPUP', 'SIDE_PANEL', 'DEVELOPER_TOOLS']
       }).catch(() => []);
       const isPopupOpen = contexts.length > 0;
 
@@ -296,17 +342,14 @@ async function handleWindowsChanged(windowId) {
         console.log("[Resiliencia] Salida cancelada: Se detectó una ventana con foco real.");
         focusTimeout = null;
 
-        let { focus_chrome } = await chrome.storage.local.get("focus_chrome")
-        console.log("Esta en chrome?: ", focus_chrome);
+        await setFocusChrome(true)
 
         return;
       }
 
-      // Si llegamos aquí, es que REALMENTE no hay ninguna ventana de Chrome enfocada
       console.warn("[Confirmado] Usuario fuera de Chrome. Registrando salida...");
 
       // --- REGISTRO DE SALIDA EN LA BD ---
-      // Registramos que REALMENTE no hay ninguna ventana de Chrome enfocada
       await setFocusChrome(false);
 
       let { last_web_activated, tabs_tracking = {} } = await chrome.storage.local.get(null);
@@ -331,11 +374,30 @@ async function handleWindowsChanged(windowId) {
       await complete_register_web(tab.id, new URL(tab.url).hostname);
 
     await chrome.storage.local.set({"focus_chrome": true});
-    let { focus_chrome } = await chrome.storage.local.get("focus_chrome")
+    let { focus_chrome } = await chrome.storage.local.get("focus_chrome");
     console.log("Esta en chrome?: ", focus_chrome);
   }
 
 }
+
+chrome.idle.onStateChanged.addListener(async (state) => {
+  //console.log("Estado de inactividad:", state);
+  if (state === "locked") {
+    console.log("Se bloqueo la computadora");
+    let { focus_chrome } = await chrome.storage.local.get("focus_chrome");
+
+    if (focus_chrome) {
+      await setFocusChrome(false);
+
+      let { last_web_activated } = await chrome.storage.local.get("last_web_activated");
+      let { tabs_tracking = {} } = await chrome.storage.local.get("tabs_tracking");
+      let db_id_visited = tabs_tracking[last_web_activated.toString()];
+
+      if (db_id_visited)
+        await register_departuretime_web(db_id_visited, { fecha_hora_salida: new Date(Date.now()) });
+    }
+  }
+});
 
 chrome.runtime.onStartup.addListener(handleOnStartup);
 
