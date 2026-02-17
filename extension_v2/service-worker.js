@@ -3,9 +3,10 @@ const DEFAULT_CATEGORY_ID = 1;
 const DEFAULT_ORIGIN = "default";
 
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
-  if (reason !== 'install') return;
+  await handleOnStartup();
 
-  await chrome.alarms.create('pulse', { periodInMinutes: 1 });
+  if (reason === 'install')
+    await chrome.alarms.create('pulse', { periodInMinutes: 1 });
 });
 
 const isHttpUrl = (url) => {
@@ -23,22 +24,16 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
 
     if (!isHttpUrl(tabInfo.url)) return;
 
-    //let same_tab = await chrome.storage.local.get(tabId.toString());
     let { tabs_tracking } = await chrome.storage.local.get("tabs_tracking");
 
     if (tabs_tracking) {
-
       let id_web_before = tabs_tracking[tabId.toString()];
 
-      if (!(id_web_before === undefined)) {
-        let web_before_updated = { fecha_hora_salida: new Date(Date.now()) };
-        await register_departuretime_web(id_web_before, web_before_updated);
-      }
-
+      if (!(id_web_before === undefined))
+        await register_departuretime_web(id_web_before, { fecha_hora_salida: new Date(Date.now()) });
     }
 
-    let new_hostname = new URL(tabInfo.url).hostname;
-    await complete_register_web(tabId, new_hostname);
+    await complete_register_web(tabId, new URL(tabInfo.url).hostname);
 
   }
 
@@ -68,6 +63,8 @@ async function handleRemoved(tabId, removeInfo) {
 
 async function handleActivated(activeInfo) {
 
+  // 1. REGISTRO DE SALIDA DE LA PESTAÑA ANTERIOR
+
   let { last_web_activated } = await chrome.storage.local.get("last_web_activated");
 
   // verificamos si existe alguna web anterior o si esta será la primera
@@ -88,19 +85,13 @@ async function handleActivated(activeInfo) {
 
   await chrome.storage.local.set({ "last_web_activated": activeInfo.tabId });
 
-  // __________________________________________
-  // REGISTRO DE INGRESO A PESTAÑA YA EXISTENTE
-  // __________________________________________
+  // 2. REGISTRO DE INGRESO A PESTAÑA YA EXISTENTE
 
   let tab_info = await chrome.tabs.get(activeInfo.tabId);
 
   if(tab_info.url) {
-
     if (!isHttpUrl(tab_info.url)) return;
-
-    let activated_hostname = new URL(tab_info.url).hostname;
-    await complete_register_web(activeInfo.tabId, activated_hostname);
-
+    await complete_register_web(activeInfo.tabId, new URL(tab_info.url).hostname);
   }
 
 }
@@ -203,19 +194,16 @@ async function register_departuretime_web(id_web, web_updated) {
 
 async function handleAlarm(alarm) {
 
-  if (alarm.name !== "pulse") return;
+  const { focus_chrome, last_web_activated, tabs_tracking = {} } = await chrome.storage.local.get(null);
 
-  let { last_web_activated } = await chrome.storage.local.get("last_web_activated");
+  if (alarm.name !== "pulse" || focus_chrome === false) return;
+
   if (!last_web_activated) return;
 
-  let { tabs_tracking = {} } = await chrome.storage.local.get("tabs_tracking");
   let db_id_visited = tabs_tracking[last_web_activated.toString()];
   if (!db_id_visited) return;
 
-  let web_visited_updated = { fecha_hora_salida: new Date(Date.now()) };
-
-  await register_departuretime_web(db_id_visited, web_visited_updated);
-
+  await register_departuretime_web(db_id_visited, { fecha_hora_salida: new Date(Date.now()) });
 }
 
 async function checkAlarmState() {
@@ -228,13 +216,130 @@ async function checkAlarmState() {
 
 async function handleOnStartup() {
   try {
-    await chrome.storage.local.remove(["tabs_tracking", "last_web_activated"]);
+    await chrome.storage.local.remove(["tabs_tracking", "last_web_activated", "focus_chrome"]);
   } catch (e) {
     console.error(e.message);
   }
+  await chrome.storage.local.set({"focus_chrome": true});
+}
+
+/* "temporizador de salida": Si el foco vuelve a Chrome antes de que el tiempo se cumpla,
+    abortamos el registro de salida en la BD. */
+let focusTimeout = null;
+
+async function setFocusChrome(isFocused) {
+  await chrome.storage.local.set({"focus_chrome": isFocused});
+  let { focus_chrome } = await chrome.storage.local.get("focus_chrome")
+  console.log("Esta en chrome?: ", focus_chrome);
+}
+
+/* NOTA: Esta función está pensada para que cuando el usuario se mueva a otra aplicación (Ej. Excel),
+   se registre la hora de salida del ultimo sitio web que estaba visitando. Sin embargo, ciertas
+   acciones dentro de Chrome también son interpretadas como "salidas" rapidas de carga (ej. clickear una extensión,
+   cerrar pestañas, cambiar entre pestañas, etc), ya que el flujo que siguen es Ventana A -> Salida -> Ventana A.
+   Es por ello, que se utilizarán focusTimeout y setTimeout para verificar que realmente sea una
+   salida de chrome y no una "salida rápida de carga". */
+async function handleWindowsChanged(windowId) {
+
+  // Cancelamos cualquier salida que estuviera "en cola"
+  if (focusTimeout) {
+    clearTimeout(focusTimeout);
+    focusTimeout = null;
+  }
+
+  let { focus_chrome } = await chrome.storage.local.get("focus_chrome")
+
+  // Si el usuario ya no está dentro de Chrome
+  if (windowId === chrome.windows.WINDOW_ID_NONE) {
+
+    // Esperamos 500ms para confirmar que no sea una "salida rápida de carga"
+    focusTimeout = setTimeout(async () => {
+      // --- VERIFICACIÓN DE SEGURIDAD ---
+
+      // 1. Obtenemos la última ventana que tuvo el foco
+      let lastWin;
+
+      try {
+        // Intentamos obtener la última ventana
+        lastWin = await chrome.windows.getLastFocused();
+      } catch (e) {
+        // Si da error, significa que NO HAY ventanas (Chrome se cerró)
+        console.warn("[Apagado] No hay ventanas activas. Registrando salida final...");
+        await setFocusChrome(false);
+
+        return;
+      }
+
+      // 2. FILTRO DE MINIMIZACIÓN (Prioridad 1)
+      // Si la ventana está minimizada, el usuario NO está viendo Chrome.
+      if (lastWin.state === 'minimized') {
+        console.warn("[Confirmado] Salida por MINIMIZACIÓN o cierre.");
+        await setFocusChrome(false);
+
+        return;
+      }
+
+      // Pedimos todas las ventanas y vemos si alguna tiene el foco actualmente
+      const windows = await chrome.windows.getAll({ populate: false });
+      const anyWindowFocused = windows.some(win => win.focused === true);
+
+      /* Clickear una extensión se considera salida total de chrome, por eso verificamos si hay algún
+         contexto abierto (un popup de extensión se considera contexto). Si lo hay significa que
+         el usuario siguen en chrome y simplemente a abierto una extensión*/
+      const contexts = await chrome.runtime.getContexts({
+        //contextTypes: ['POPUP', 'TAB', 'BACKGROUND', 'OFFSCREEN_DOCUMENT', 'SIDE_PANEL', 'DEVELOPER_TOOLS']
+        contextTypes: ['POPUP','BACKGROUND', 'SIDE_PANEL', 'DEVELOPER_TOOLS']
+      }).catch(() => []);
+      const isPopupOpen = contexts.length > 0;
+
+      if (anyWindowFocused || isPopupOpen) {
+        console.log("[Resiliencia] Salida cancelada: Se detectó una ventana con foco real.");
+        focusTimeout = null;
+
+        let { focus_chrome } = await chrome.storage.local.get("focus_chrome")
+        console.log("Esta en chrome?: ", focus_chrome);
+
+        return;
+      }
+
+      // Si llegamos aquí, es que REALMENTE no hay ninguna ventana de Chrome enfocada
+      console.warn("[Confirmado] Usuario fuera de Chrome. Registrando salida...");
+
+      // --- REGISTRO DE SALIDA EN LA BD ---
+      // Registramos que REALMENTE no hay ninguna ventana de Chrome enfocada
+      await setFocusChrome(false);
+
+      let { last_web_activated, tabs_tracking = {} } = await chrome.storage.local.get(null);
+      if (!last_web_activated) return;
+      let db_id_visited = tabs_tracking[last_web_activated.toString()];
+
+      if (db_id_visited)
+        await register_departuretime_web(db_id_visited, { fecha_hora_salida: new Date(Date.now()) });
+
+      focusTimeout = null;
+    }, 500);
+
+  } else if (focus_chrome === false) {
+    // Si el usuario volvió a Chrome después de estar en otra app
+
+    const win = await chrome.windows.get(windowId);
+    console.log("Has vuelto a una ventana de tipo:", win.type);
+
+    let [tab] = await chrome.tabs.query({ active: true, windowId: windowId });
+
+    if(tab && tab.url && isHttpUrl(tab.url))
+      await complete_register_web(tab.id, new URL(tab.url).hostname);
+
+    await chrome.storage.local.set({"focus_chrome": true});
+    let { focus_chrome } = await chrome.storage.local.get("focus_chrome")
+    console.log("Esta en chrome?: ", focus_chrome);
+  }
+
 }
 
 chrome.runtime.onStartup.addListener(handleOnStartup);
+
+chrome.windows.onFocusChanged.addListener(handleWindowsChanged);
 
 chrome.tabs.onUpdated.addListener(handleUpdated);
 
@@ -244,3 +349,13 @@ chrome.tabs.onActivated.addListener(handleActivated);
 
 chrome.alarms.onAlarm.addListener(handleAlarm);
 checkAlarmState();
+
+/*
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'local') {
+    for (let [key, { oldValue, newValue }] of Object.entries(changes)) {
+      console.log(`[STORAGE] Key "${key}" cambió:`, oldValue, "->", newValue);
+    }
+  }
+});
+*/
