@@ -24,15 +24,18 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
 
     if (!isHttpUrl(tabInfo.url)) return;
 
+    // Si se viaja a otro sitio web pero en la misma pestaña entonces se considera como 2 registros en la BD
     let { tabs_tracking } = await chrome.storage.local.get("tabs_tracking");
-
     if (tabs_tracking) {
       let id_web_before = tabs_tracking[tabId.toString()];
 
-      if (!(id_web_before === undefined))
+      if (id_web_before)
         await register_departuretime_web(id_web_before, { fecha_hora_salida: new Date(Date.now()) });
     }
 
+    /* TODO: Se puede, si lo consideramos necesario, agregar logica para que cuando el usuario abra
+        varios sitios web rápido, se registre su salida inmediantamente si el tabID != last_web ,
+        de esta forma no habra registros de salida NULL */
     await complete_register_web(tabId, new URL(tabInfo.url).hostname);
 
   }
@@ -47,8 +50,9 @@ async function handleRemoved(tabId, removeInfo) {
   let db_id_visited = tabs_tracking[tabId.toString()];
   if (!db_id_visited) return; // verificamos si el db_id_visited existe
 
-  // Solo se registra la salida de la web si la pestaña que estamos cerrando es la activa sino esto
-  // quiere decir que ya hemos registrado su salida al cambiar a otra pestaña
+  /* Solo se registra la salida de la web si la pestaña que estamos cerrando es la ACTIVA sino esto
+     quiere decir que hemos cerrado una pestaña que estaba en 2do plano y por ende su salida ya se
+     registró al momento que cambio de pestaña ACTIVA */
   if (tabId === last_web_activated) {
     await register_departuretime_web(db_id_visited, { fecha_hora_salida: new Date(Date.now()) });
   }
@@ -58,9 +62,16 @@ async function handleRemoved(tabId, removeInfo) {
 
 }
 
+let processingTabId = null;
 async function handleActivated(activeInfo) {
 
-  // 1. REGISTRO DE SALIDA DE LA PESTAÑA ANTERIOR
+  // BLOQUEO INSTANTÁNEO: Si ya estamos procesando este ID, abortamos sin esperar al storage
+  if (processingTabId === activeInfo.tabId) return;
+  processingTabId = activeInfo.tabId;
+
+  console.log("Se ejecuta el handleActivated", activeInfo.tabId);
+
+  // --- REGISTRO DE SALIDA DE LA PESTAÑA ANTERIOR ---
 
   let { last_web_activated } = await chrome.storage.local.get("last_web_activated");
 
@@ -70,11 +81,14 @@ async function handleActivated(activeInfo) {
     return;
   }
 
+  await chrome.storage.local.set({ "last_web_activated": activeInfo.tabId });
+
+  // Si focus_chrome es false significa que el usuario clickeo otra pestaña al reenfocarse a Chrome
   let { focus_chrome } = await chrome.storage.local.get("focus_chrome");
   if (focus_chrome) {
 
     let { tabs_tracking = {} } = await chrome.storage.local.get("tabs_tracking");
-    let db_id_visited = tabs_tracking[last_web_activated.toString()];
+    let db_id_visited = tabs_tracking[last_web_activated?.toString()];
 
     // Si el ultimo web_visited existe en el local storage entonces se hace el try-catch
     // Cuando puede no existir?: Cuando la ultima web no es http
@@ -83,16 +97,12 @@ async function handleActivated(activeInfo) {
 
   } else await setFocusChrome(true);
 
-  await chrome.storage.local.set({ "last_web_activated": activeInfo.tabId });
-
-  // 2. REGISTRO DE INGRESO A PESTAÑA YA EXISTENTE
+  // --- REGISTRO DE INGRESO A PESTAÑA YA EXISTENTE ---
 
   let tab_info = await chrome.tabs.get(activeInfo.tabId);
 
-  if(tab_info.url) {
-    if (!isHttpUrl(tab_info.url)) return;
+  if(tab_info.url && isHttpUrl(tab_info.url))
     await complete_register_web(activeInfo.tabId, new URL(tab_info.url).hostname);
-  }
 
 }
 
@@ -210,7 +220,7 @@ async function handleAlarm(alarm) {
 
       // Registramos la salida en la BD
       let { last_web_activated, tabs_tracking = {} } = await chrome.storage.local.get(null);
-      let db_id = tabs_tracking[last_web_activated.toString()];
+      let db_id = tabs_tracking[last_web_activated?.toString()];
       if (db_id) await register_departuretime_web(db_id, { fecha_hora_salida: new Date() });
 
       return;
@@ -221,7 +231,7 @@ async function handleAlarm(alarm) {
 
   // 2. LÓGICA DE PULSO NORMAL (Si hay foco)
   let { last_web_activated, tabs_tracking = {} } = await chrome.storage.local.get(null);
-  let db_id_visited = tabs_tracking[last_web_activated.toString()];
+  let db_id_visited = tabs_tracking[last_web_activated?.toString()];
   if (db_id_visited) await register_departuretime_web(db_id_visited, { fecha_hora_salida: new Date() });
 
 }
@@ -243,8 +253,6 @@ async function handleOnStartup() {
   await chrome.storage.local.set({"focus_chrome": true});
 }
 
-/* "temporizador de salida": Si el foco vuelve a Chrome antes de que el tiempo se cumpla,
-    abortamos el registro de salida en la BD. */
 let focusTimeout = null;
 
 async function setFocusChrome(isFocused) {
@@ -270,7 +278,7 @@ async function handleWindowsChanged(windowId) {
 
   let { focus_chrome } = await chrome.storage.local.get("focus_chrome");
 
-  // Si el usuario ya no está dentro de Chrome
+  // CONTEXTO: Si el usuario ya no está dentro de Chrome
   if (windowId === chrome.windows.WINDOW_ID_NONE) {
 
     // Esperamos 500ms antes de ejecutar el código para confirmar que no haya sido una "salida rápida de carga"
@@ -292,7 +300,7 @@ async function handleWindowsChanged(windowId) {
         console.warn("Salida por MINIMIZACIÓN o cierre.");
         await setFocusChrome(false);
         let { last_web_activated, tabs_tracking = {} } = await chrome.storage.local.get(null);
-        let db_id_visited = tabs_tracking[last_web_activated.toString()];
+        let db_id_visited = tabs_tracking[last_web_activated?.toString()];
         if (db_id_visited) await register_departuretime_web(db_id_visited, { fecha_hora_salida: new Date(Date.now()) });
         focusTimeout = null;
         return;
@@ -313,9 +321,34 @@ async function handleWindowsChanged(windowId) {
       const isPopupOpen = contexts.length > 0;
 
       if (anyWindowFocused || isPopupOpen) {
+        await setFocusChrome(true);
+
         console.log("[Resiliencia] Salida cancelada: Se detectó una ventana con foco real.");
         focusTimeout = null;
-        await setFocusChrome(true)
+
+        const activeWindow = windows.find(win => win.focused === true);
+
+        let [activeTab] = await chrome.tabs.query({ active: true, windowId: activeWindow.id });
+        let { last_web_activated, tabs_tracking = {} } = await chrome.storage.local.get(null);
+
+        if (activeTab && activeTab.id !== last_web_activated ) {
+
+          console.log("Se ejecuta el handleActivated V4", activeTab.id);
+
+          // --- REGISTRO DE SALIDA DE LA PESTAÑA ANTERIOR ---
+
+          let db_id_visited = tabs_tracking[last_web_activated?.toString()];
+          if (db_id_visited)
+            await register_departuretime_web(db_id_visited, { fecha_hora_salida: new Date(Date.now()) });
+
+          // --- REGISTRO DE INGRESO A PESTAÑA YA EXISTENTE ---
+
+          await chrome.storage.local.set({"last_web_activated": activeTab.id});
+
+          if(activeTab.url && isHttpUrl(activeTab.url))
+            await complete_register_web(activeTab.id, new URL(activeTab.url).hostname);
+
+        }
         return;
       }
 
@@ -325,26 +358,58 @@ async function handleWindowsChanged(windowId) {
       await setFocusChrome(false);
 
       let { last_web_activated, tabs_tracking = {} } = await chrome.storage.local.get(null);
-      let db_id_visited = tabs_tracking[last_web_activated.toString()];
+      let db_id_visited = tabs_tracking[last_web_activated?.toString()];
       if (db_id_visited) await register_departuretime_web(db_id_visited, { fecha_hora_salida: new Date(Date.now()) });
 
       focusTimeout = null;
     }, 500);
 
   } else if (focus_chrome === false) {
-    // Si el usuario volvió a Chrome después de estar en otra app
+    // CONTEXTO: Si el usuario volvió a Chrome después de estar en otra app
 
     let [tab] = await chrome.tabs.query({ active: true, windowId: windowId });
+    await chrome.storage.local.set({ "last_web_activated": tab.id });
 
-    if(tab && tab.url && isHttpUrl(tab.url)) {
-      await chrome.storage.local.set({ "last_web_activated": tab.id });
+    if(tab && tab.url && isHttpUrl(tab.url))
       await complete_register_web(tab.id, new URL(tab.url).hostname);
-    }
 
+    console.log("Se ejecuta el handleActivated V3", tab.id);
     await setFocusChrome(true);
+    /* TODO[Si se considera necesario]: Cuando estas fuera y vuelves a Chrome pero a una pestaña
+        distinta de dónde lo dejaste entonces se activa el handleUpdated y el handleWindowsChanged,
+        esto registra 2 veces la visita pero no cierra la 1era visita. Tal vez se podría solucionar
+        si preguntaramos a la BD si la ultima visita es de la misma web para ya no registralo otra vez */
+  } else {
+    // CONTEXTO: Si el usuario solo se movió entre ventanas de Chrome
+
+    let [activeTab] = await chrome.tabs.query({ active: true, windowId: windowId });
+    let { last_web_activated, tabs_tracking = {} } = await chrome.storage.local.get(null);
+
+    if (activeTab && activeTab.id !== last_web_activated ) {
+
+      if (processingTabId === activeTab.id) return;
+      processingTabId = activeTab.id;
+
+      console.log("Se ejecuta el handleActivated V2", activeTab.id);
+
+      // --- REGISTRO DE SALIDA DE LA PESTAÑA ANTERIOR ---
+
+      let db_id_visited = tabs_tracking[last_web_activated?.toString()];
+      if (db_id_visited)
+        await register_departuretime_web(db_id_visited, { fecha_hora_salida: new Date(Date.now()) });
+
+      // --- REGISTRO DE INGRESO A PESTAÑA YA EXISTENTE ---
+
+      await chrome.storage.local.set({"last_web_activated": activeTab.id});
+
+      if(activeTab.url && isHttpUrl(activeTab.url))
+        await complete_register_web(activeTab.id, new URL(activeTab.url).hostname);
+
+    }
   }
 
 }
+
 
 chrome.idle.onStateChanged.addListener(async (state) => {
   // Si el usuario bloquea su pantalla, se registra la salida de la ultima web que estaba viendo
@@ -356,7 +421,7 @@ chrome.idle.onStateChanged.addListener(async (state) => {
       await setFocusChrome(false);
 
       let { last_web_activated, tabs_tracking = {} } = await chrome.storage.local.get(null);
-      let db_id_visited = tabs_tracking[last_web_activated.toString()];
+      let db_id_visited = tabs_tracking[last_web_activated?.toString()];
 
       if (db_id_visited)
         await register_departuretime_web(db_id_visited, { fecha_hora_salida: new Date(Date.now()) });
@@ -369,9 +434,7 @@ chrome.runtime.onStartup.addListener(handleOnStartup);
 chrome.windows.onFocusChanged.addListener(handleWindowsChanged);
 
 chrome.tabs.onUpdated.addListener(handleUpdated);
-
 chrome.tabs.onRemoved.addListener(handleRemoved);
-
 chrome.tabs.onActivated.addListener(handleActivated);
 
 chrome.alarms.onAlarm.addListener(handleAlarm);
