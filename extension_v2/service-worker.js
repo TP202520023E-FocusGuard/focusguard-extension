@@ -1,6 +1,9 @@
 const USER_ID = 1;
 const DEFAULT_CATEGORY_ID = 1;
+const DEFAULT_CATEGORY_CONTENT_ID = 1;
 const DEFAULT_ORIGIN = "default";
+// TODO[Do]: Cambiar variable estatica por obtención dinámica desde la BD
+const WEBSITES_DOBLE_FILO = ["www.youtube.com", "facebook.com"];
 
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   await handleOnStartup();
@@ -18,6 +21,7 @@ const isHttpUrl = (url) => {
   }
 };
 
+let timerContent = null;
 async function handleUpdated(tabId, changeInfo, tabInfo) {
 
   if(changeInfo.status === 'complete' && tabInfo.url) {
@@ -25,21 +29,172 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
     if (!isHttpUrl(tabInfo.url)) return;
 
     // Si se viaja a otro sitio web pero en la misma pestaña entonces se considera como 2 registros en la BD
-    let { tabs_tracking } = await chrome.storage.local.get("tabs_tracking");
-    if (tabs_tracking) {
-      let id_web_before = tabs_tracking[tabId.toString()];
+    let { tabs_tracking = {}} = await chrome.storage.local.get("tabs_tracking");
 
-      if (id_web_before)
-        await register_departuretime_web(id_web_before, { fecha_hora_salida: new Date(Date.now()) });
+    let id_web_before = tabs_tracking[tabId.toString()];
+
+
+    // TODO[Think]: Agregar lógica para que no se registre otra vez la web si se recarga la pagina o si se cambia de video de youtube
+    if (id_web_before) // Si cambió de página dentro de la misma pestaña...
+    {
+      await register_departuretime_web(id_web_before, {fecha_hora_salida: new Date(Date.now())});
+      //if (id_content_before) await register_departuretime_web(id_content_before);
     }
 
-    /* TODO: Se puede, si lo consideramos necesario, agregar logica para que cuando el usuario abra
+    /* TODO[Think]: Se puede, si lo consideramos necesario, agregar logica para que cuando el usuario abra
         varios sitios web rápido, se registre su salida inmediantamente si el tabID != last_web ,
         de esta forma no habra registros de salida NULL */
-    await complete_register_web(tabId, new URL(tabInfo.url).hostname);
+    let hostname = new URL(tabInfo.url).hostname;
+    await complete_register_web(tabId, hostname);
+    // TODO[Do]: Si el sitio web es Youtube registrar su contenido solo si no es el menu principal
 
   }
 
+  if (changeInfo.title && tabInfo.url) {
+    if (timerContent) {
+      clearTimeout(timerContent);
+      timerContent = null;
+    }
+
+    if (!isHttpUrl(tabInfo.url)) return;
+
+    let hostname = new URL(tabInfo.url).hostname;
+    if (WEBSITES_DOBLE_FILO.includes(hostname)) {
+      timerContent = setTimeout(async () => {
+        let { content_tracking = {}} = await chrome.storage.local.get("content_tracking");
+        let id_content_before = content_tracking[tabId.toString()];
+
+        if (id_content_before) // Si cambió de contenido dentro de la misma pestaña...
+          await register_departuretime_content(id_content_before, {fecha_hora_salida: new Date(Date.now())});
+
+        await complete_register_content(tabId, tabInfo.title, hostname);
+        timerContent = null;
+      }, 3000);
+    }
+  }
+
+}
+
+async function complete_register_content(tabId, title, hostname) {
+  let new_content = { titulo: title };
+
+  try {
+
+    // OBTENEMOS EL SITIO WEB POR SU DOMINIO
+    let resWeb = await fetch(`http://127.0.0.1:8000/api/v1/websites/by-domain/${hostname}`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      }
+    });
+
+    if (!resWeb.ok)
+      throw new Error(`Error en obtener id_web para registrar el contenido: ${resWeb.status}`);
+
+    let dataWeb = await resWeb.json();
+    let id_web = dataWeb.id;
+
+    // REGISTRAMOS EL CONTENIDO
+    let resContent = await fetch(`http://127.0.0.1:8000/api/v1/contents`, {
+      method: "POST",
+      body: JSON.stringify(new_content),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!resContent.ok)
+      throw new Error(`Error en contents: ${resContent.status}`);
+
+    let dataContent = await resContent.json();
+    let id_content = dataContent.id;
+
+    // OBTENEMOS LA WEB DEL USUARIO
+    let resWebUser = await fetch(`http://127.0.0.1:8000/api/v1/website-users/users/${USER_ID}/sites/${id_web}`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      }
+    });
+
+    if (!resWebUser.ok)
+      throw new Error(`Error en obtener el id_sitios_web_usuario para contents: ${resWebUser.status}`);
+
+    let data_web_user = await resWebUser.json();
+    let id_web_user = data_web_user.id;
+
+    const new_content_user = {
+      id_usuarios: USER_ID,
+      id_sitios_web_usuario: id_web_user,
+      id_contenidos: id_content,
+      id_categorias_contenido: DEFAULT_CATEGORY_CONTENT_ID,
+    };
+
+    //console.log("Enviando a content-users:", JSON.stringify(new_content_user, null, 2));
+
+    // REGISTRAMOS EL CONTENIDO POR USUARIO
+    let resContentUser = await fetch(`http://127.0.0.1:8000/api/v1/content-users`, {
+      method: "POST",
+      body: JSON.stringify(new_content_user),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!resContentUser.ok)
+      throw new Error(`Error en content-users: ${resContentUser.status}`);
+
+    let dataContentUser = await resContentUser.json();
+    let id_content_user = dataContentUser.id;
+
+    let new_content_visited = {
+      id_usuarios: USER_ID,
+      id_contenidos_usuario: id_content_user,
+      fecha_hora_ingreso: new Date(Date.now())
+    };
+
+    // REGISTRAMOS LA FECHA DE ENTRADA AL CONTENIDO
+
+    let resContentVisited = await fetch(`http://127.0.0.1:8000/api/v1/content-visited`, {
+      method: "POST",
+      body: JSON.stringify(new_content_visited),
+      headers: {
+        "Content-Type": "application/json",
+      }
+    });
+
+    if (!resContentVisited.ok)
+      throw new Error(`Error en content-user-visited: ${resContentVisited.status}`);
+
+    let dataContentVisited = await resContentVisited.json();
+
+    // GUARDAMOS EL ID DE LA PESTAÑA JUNTO CON SU ID DE WEBSITE_VISITADO EN LA BD
+    let { content_tracking = {} } = await chrome.storage.local.get("content_tracking");
+    content_tracking[tabId.toString()] = dataContentVisited.id;
+
+    await chrome.storage.local.set({"content_tracking": content_tracking});
+
+  } catch (e) {
+    console.error(e.message);
+  }
+}
+
+async function register_departuretime_content(id_content, content_updated) {
+  try {
+    let response = await fetch(`http://127.0.0.1:8000/api/v1/content-visited/${id_content}`, {
+      method: "PATCH",
+      body: JSON.stringify(content_updated),
+      headers: {
+        "Content-Type": "application/json",
+      }
+    });
+
+    if (!response.ok)
+      throw new Error(`Error al actualizar la salida en content-user-visited: ${response.status}`);
+
+  } catch (e) {
+    console.error(e.message);
+  }
 }
 
 async function handleRemoved(tabId, removeInfo) {
