@@ -130,13 +130,11 @@ async function handleActivated(activeInfo) {
   // Si focus_chrome es false significa que el usuario clickeo otra pestaña al reenfocarse a Chrome
   if (focus_chrome) {
     let id_web_visited = tabs_tracking[last_web_activated?.toString()];
-
     if (id_web_visited) {
       await register_departuretime_web(id_web_visited, {fecha_hora_salida: new Date(Date.now())});
 
       // Si la pestaña anterior era Youtube entonces debo registra la salida de su contenido
       let id_content_visited = content_tracking[last_web_activated?.toString()];
-
       if (id_content_visited) {
         console.log("Se ejecuta el handleActivated para id_visited", id_content_visited);
         await register_departuretime_content(id_content_visited, {fecha_hora_salida: new Date(Date.now())});
@@ -149,7 +147,7 @@ async function handleActivated(activeInfo) {
 
   let tab_info = await chrome.tabs.get(activeInfo.tabId);
 
-  if(tab_info.url) {
+  if(tab_info?.url) {
     let hostname = new URL(tab_info.url).hostname;
     await chrome.storage.local.set({"last_domain": hostname});
 
@@ -375,13 +373,12 @@ async function handleAlarm(alarm) {
 
   if (alarm.name !== "pulse") return;
   let { focus_chrome, last_web_activated, tabs_tracking = {}, content_tracking = {} } = await chrome.storage.local.get(null);
-  const was_focused = focus_chrome; // Almacena si el usuario estubo en Chrome al momento de ejecutar el PULSO
 
   try {
     const windows = await chrome.windows.getAll({ populate: false });
     const anyWindowFocused = windows.some(win => win.focused === true);
 
-    if (was_focused) { // Si estabas dentro de Chrome...
+    if (focus_chrome) { // Si estabas dentro de Chrome...
       if (!anyWindowFocused) { // Y ahora se nota que ya no estas, se registra tu salida
         await setFocusChrome(false);
         await chrome.storage.local.set({ "last_domain": "-" });
@@ -401,9 +398,9 @@ async function handleAlarm(alarm) {
         return;
       } else { // Y has vuelto a la MISMA pestaña, se registra una nueva visita
         await setFocusChrome(true);
-        const active_tab = chrome.tabs.query({active: true, currentWindow: true});
+        const [active_tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
 
-        if(active_tab.url) {
+        if(active_tab?.url) {
           let hostname = new URL(active_tab.url).hostname;
           await chrome.storage.local.set({"last_domain": hostname});
 
@@ -412,25 +409,9 @@ async function handleAlarm(alarm) {
             if (WEBSITES_DOBLE_FILO.includes(hostname)) await complete_register_content(active_tab.id, active_tab.title, hostname);
           }
         }
+
       }
     }
-
-/*
-    if (!anyWindowFocused) {
-      await setFocusChrome(false);
-      await chrome.storage.local.set({ "last_domain": "-" });
-    } else await setFocusChrome(true);
-
-    let id_web_visited = tabs_tracking[last_web_activated?.toString()];
-    if (id_web_visited) {
-      await register_departuretime_web(id_web_visited, {fecha_hora_salida: new Date()});
-
-      let id_content_visited = content_tracking[last_web_activated?.toString()];
-      //console.log("Se debería ejecutar el Pulso y el id_visited es", id_content_visited);
-      if (id_content_visited) await register_departuretime_content(id_content_visited, {fecha_hora_salida: new Date(Date.now())});
-    }
-
- */
 
   } catch (e) {
     console.error("Error en auditoría de alarma:", e);
@@ -555,15 +536,15 @@ async function handleWindowsChanged(windowId) {
   } else if (focus_chrome === false) {
     // CONTEXTO: Si el usuario volvió a Chrome después de estar en otra app
 
-    let [tab] = await chrome.tabs.query({ active: true, windowId: windowId });
-    await chrome.storage.local.set({ "last_web_activated": tab.id });
+    let [activeTab] = await chrome.tabs.query({ active: true, windowId: windowId });
+    await chrome.storage.local.set({ "last_web_activated": activeTab.id });
 
-    if(tab && tab.url) {
-      let hostname = new URL(tab.url).hostname;
+    if(activeTab && activeTab.url) {
+      let hostname = new URL(activeTab.url).hostname;
       await chrome.storage.local.set({"last_domain": hostname});
 
-      if (isHttpUrl(tab.url)) {
-        await complete_register_web(tab.id, hostname);
+      if (isHttpUrl(activeTab.url)) {
+        await complete_register_web(activeTab.id, hostname);
         if (WEBSITES_DOBLE_FILO.includes(hostname)) await complete_register_content(activeTab.id, activeTab.title, hostname);
       }
     }
