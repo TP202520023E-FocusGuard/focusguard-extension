@@ -8,6 +8,18 @@ let timerContent = null;
 let processingTabId = null;
 let focusTimeout = null;
 
+/*async function getAuthenticatedUser() {
+  const { user_id } = await chrome.storage.local.get("user_id");
+  return user_id || null;
+}*/
+function withAuth(handler) {
+  return async (...args) => {
+    const { user_id } = await chrome.storage.local.get("user_id");
+    if (user_id) {
+      return handler(...args);
+    }
+  };
+}
 
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   await handleOnStartup();
@@ -72,7 +84,7 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
     }
 
 
-
+    // VERSIÓN SIN ESPERA DE 3 SEGUNDOS
     /*if (WEBSITES_DOBLE_FILO.includes(hostname)) {
       let id_content_before = content_tracking[tabId.toString()];
       if (id_content_before) // Si cambió de contenido dentro de la misma pestaña
@@ -487,7 +499,7 @@ async function handleWindowsChanged(windowId) {
         await setFocusChrome(true);
 
         const activeWindow = windows.find(win => win.focused === true);
-        let [activeTab] = await chrome.tabs.query({ active: true, windowId: activeWindow.id });
+        let [activeTab] = await chrome.tabs.query({ active: true, windowId: activeWindow?.id });
 
         if (activeTab && activeTab?.id !== last_web_activated) {
           // El last_web_activated seguirá siendo el mismo si, por ejemplo, abres el popup de una extensión
@@ -616,7 +628,7 @@ async function setFocusChrome(isFocused) {
 }
 
 
-chrome.idle.onStateChanged.addListener(async (state) => {
+chrome.idle.onStateChanged.addListener(withAuth(async (state) => {
   // Si el usuario bloquea su pantalla, se registra la salida de la ultima web que estaba viendo
   if (state === "locked") {
     console.log("Se bloqueo la computadora");
@@ -632,14 +644,19 @@ chrome.idle.onStateChanged.addListener(async (state) => {
         await register_departuretime_web(db_id_visited, { fecha_hora_salida: new Date(Date.now()) });
     }
   }
-});
-chrome.runtime.onStartup.addListener(handleOnStartup);
-chrome.windows.onFocusChanged.addListener(handleWindowsChanged);
+}));
+chrome.runtime.onStartup.addListener(withAuth(handleOnStartup));
+chrome.windows.onFocusChanged.addListener(withAuth(handleWindowsChanged));
 
-chrome.tabs.onUpdated.addListener(handleUpdated);
-chrome.tabs.onRemoved.addListener(handleRemoved);
-chrome.tabs.onActivated.addListener(handleActivated);
+chrome.tabs.onUpdated.addListener(withAuth(handleUpdated));
+chrome.tabs.onRemoved.addListener(withAuth(handleRemoved));
+chrome.tabs.onActivated.addListener(withAuth(handleActivated));
 
-chrome.alarms.onAlarm.addListener(handleAlarm);
-checkAlarmState();
+chrome.alarms.onAlarm.addListener(withAuth(handleAlarm));
+//checkAlarmState();
 
+async function init() {
+  const { user_id } = await chrome.storage.local.get("user_id");
+  if (user_id) checkAlarmState();
+}
+init();
