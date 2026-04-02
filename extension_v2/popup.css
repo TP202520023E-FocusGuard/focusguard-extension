@@ -1,6 +1,30 @@
+body {
+  width: 300px;
+  height: 600px;
+  margin: 0;
+  padding: 10px;
+}
+
+#registration-form {
+  width: 90%;
+  height: 300px;
+  /*border: 1px solid #000;*/
+}
+
+#btn-go-to-register {
+  cursor: pointer;
+  color: blue;
+  text-decoration: underline;
+}
+
+#btn-go-to-auth {
+  cursor: pointer;
+  color: blue;
+  text-decoration: underline;
+  /*border: 1px solid #000;*/
+}
 
 .popup-info {
-  width: 300px;
   height: 1200px;
   display: flex;
   justify-content: center;
