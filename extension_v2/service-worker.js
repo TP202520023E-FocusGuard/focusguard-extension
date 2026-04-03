@@ -1,9 +1,4 @@
-const USER_ID = 1;
-const DEFAULT_CATEGORY_ID = 1;
-const DEFAULT_CATEGORY_CONTENT_ID = 1;
 const DEFAULT_ORIGIN = "default";
-// TODO[Do]: Cambiar variable estatica por obtención dinámica desde la BD
-const WEBSITES_DOBLE_FILO = ["www.youtube.com", "facebook.com"];
 let timerContent = null;
 let processingTabId = null;
 let focusTimeout = null;
@@ -64,7 +59,8 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
     let { content_tracking = {}, last_web_activated } = await chrome.storage.local.get(null);
     if (last_web_activated !== tabId) return;
 
-    if (WEBSITES_DOBLE_FILO.includes(hostname)) {
+    const websites_doble_filo = await getWebsDobleFilo();
+    if (websites_doble_filo.includes(hostname)) {
       timerContent = setTimeout(async () => {
         timerContent = null;
 
@@ -165,7 +161,9 @@ async function handleActivated(activeInfo) {
 
     if (isHttpUrl(tab_info.url)) {
       await complete_register_web(activeInfo.tabId, hostname);
-      if (WEBSITES_DOBLE_FILO.includes(hostname)) await complete_register_content(activeInfo.tabId, tab_info.title, hostname);
+
+      const websites_doble_filo = await getWebsDobleFilo();
+      if (websites_doble_filo.includes(hostname)) await complete_register_content(activeInfo.tabId, tab_info.title, hostname);
     }
   }
 }
@@ -182,9 +180,7 @@ async function complete_register_web(tabId, hostname) {
     let response1 = await fetch(`http://127.0.0.1:8000/api/v1/websites`, {
       method: "POST",
       body: JSON.stringify(new_web),
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: {"Content-Type": "application/json"}
     });
 
     if (!response1.ok)
@@ -193,10 +189,13 @@ async function complete_register_web(tabId, hostname) {
     let data = await response1.json();
     let id_web = data.id;
 
+    const id_user = await getUserLogged();
+    const id_default_category_web = await getDefaultCategoryWeb();
+
     const new_website_user = {
-      id_usuarios: USER_ID,
+      id_usuarios: id_user,
       id_sitios_web: id_web,
-      id_categorias_web: DEFAULT_CATEGORY_ID,
+      id_categorias_web: id_default_category_web,
       origen: DEFAULT_ORIGIN
     };
 
@@ -205,9 +204,7 @@ async function complete_register_web(tabId, hostname) {
     let response2 = await fetch(`http://127.0.0.1:8000/api/v1/website-users`, {
       method: "POST",
       body: JSON.stringify(new_website_user),
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: {"Content-Type": "application/json"},
     });
 
     if (!response2.ok)
@@ -217,7 +214,7 @@ async function complete_register_web(tabId, hostname) {
     let id_web_user = data2.id;
 
     let new_web_visited = {
-      id_usuarios: USER_ID,
+      id_usuarios: id_user,
       id_sitios_web_usuario: id_web_user,
       fecha_hora_ingreso: new Date(Date.now())
     };
@@ -227,9 +224,7 @@ async function complete_register_web(tabId, hostname) {
     let response3 = await fetch(`http://127.0.0.1:8000/api/v1/website-visited`, {
       method: "POST",
       body: JSON.stringify(new_web_visited),
-      headers: {
-        "Content-Type": "application/json",
-      }
+      headers: {"Content-Type": "application/json"}
     });
 
     if (!response3.ok)
@@ -298,7 +293,8 @@ async function complete_register_content(tabId, title, hostname) {
     let id_content = dataContent.id;
 
     // OBTENEMOS LA WEB DEL USUARIO
-    let resWebUser = await fetch(`http://127.0.0.1:8000/api/v1/website-users/users/${USER_ID}/sites/${id_web}`, {
+    const user_id = await getUserLogged();
+    let resWebUser = await fetch(`http://127.0.0.1:8000/api/v1/website-users/users/${user_id}/sites/${id_web}`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -310,11 +306,12 @@ async function complete_register_content(tabId, title, hostname) {
     let data_web_user = await resWebUser.json();
     let id_web_user = data_web_user.id;
 
+    const id_default_category_content = await getDefaultCategoryContent();
     const new_content_user = {
-      id_usuarios: USER_ID,
+      id_usuarios: user_id,
       id_sitios_web_usuario: id_web_user,
       id_contenidos: id_content,
-      id_categorias_contenido: DEFAULT_CATEGORY_CONTENT_ID,
+      id_categorias_contenido: id_default_category_content,
     };
 
     //console.log("Enviando a content-users:", JSON.stringify(new_content_user, null, 2));
@@ -334,7 +331,7 @@ async function complete_register_content(tabId, title, hostname) {
     let id_content_user = dataContentUser.id;
 
     let new_content_visited = {
-      id_usuarios: USER_ID,
+      id_usuarios: user_id,
       id_contenidos_usuario: id_content_user,
       fecha_hora_ingreso: new Date(Date.now())
     };
@@ -418,7 +415,9 @@ async function handleAlarm(alarm) {
 
           if (isHttpUrl(active_tab.url)) {
             await complete_register_web(active_tab.id, hostname);
-            if (WEBSITES_DOBLE_FILO.includes(hostname)) await complete_register_content(active_tab.id, active_tab.title, hostname);
+
+            const websites_doble_filo = await getWebsDobleFilo();
+            if (websites_doble_filo.includes(hostname)) await complete_register_content(active_tab.id, active_tab.title, hostname);
           }
         }
 
@@ -523,7 +522,9 @@ async function handleWindowsChanged(windowId) {
 
             if (isHttpUrl(activeTab.url)) {
               await complete_register_web(activeTab.id, hostname);
-              if (WEBSITES_DOBLE_FILO.includes(hostname)) await complete_register_content(activeTab.id, activeTab.title, hostname);
+
+              const websites_doble_filo = await getWebsDobleFilo();
+              if (websites_doble_filo.includes(hostname)) await complete_register_content(activeTab.id, activeTab.title, hostname);
             }
           }
         }
@@ -557,7 +558,9 @@ async function handleWindowsChanged(windowId) {
 
       if (isHttpUrl(activeTab.url)) {
         await complete_register_web(activeTab.id, hostname);
-        if (WEBSITES_DOBLE_FILO.includes(hostname)) await complete_register_content(activeTab.id, activeTab.title, hostname);
+
+        const websites_doble_filo = await getWebsDobleFilo();
+        if (websites_doble_filo.includes(hostname)) await complete_register_content(activeTab.id, activeTab.title, hostname);
       }
     }
 
@@ -595,7 +598,9 @@ async function handleWindowsChanged(windowId) {
 
         if (isHttpUrl(activeTab.url)) {
           await complete_register_web(activeTab.id, hostname);
-          if (WEBSITES_DOBLE_FILO.includes(hostname)) await complete_register_content(activeTab.id, activeTab.title, hostname);
+
+          const websites_doble_filo = await getWebsDobleFilo();
+          if (websites_doble_filo.includes(hostname)) await complete_register_content(activeTab.id, activeTab.title, hostname);
         }
       }
     }
@@ -625,6 +630,98 @@ async function setFocusChrome(isFocused) {
   await chrome.storage.local.set({"focus_chrome": isFocused});
   let { focus_chrome } = await chrome.storage.local.get("focus_chrome");
   console.log("Esta en chrome?: ", focus_chrome);
+}
+async function getUserLogged() {
+  try {
+    const { user_id } = await chrome.storage.local.get("user_id");
+    return user_id || null;
+  } catch (e) {
+    console.error("Error al acceder al storage para obtener el id_user:", e);
+    return null;
+  }
+}
+
+async function getDefaultCategoryWeb() {
+  try {
+    let response = await fetch(`http://127.0.0.1:8000/api/v1/categories/web/codigo/sin-categoria`, {
+      method: "GET",
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (!response.ok) throw new Error(`Error en obtener la categoría web por default: ${response.status}`);
+
+    let data = await response.json();
+    return data.id;
+
+  } catch (e) {
+    console.error(e.message);
+  }
+}
+async function getDefaultCategoryContent() {
+  try {
+    let response = await fetch(`http://127.0.0.1:8000/api/v1/categories/content/codigo/incierto`, {
+      method: "GET",
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (!response.ok) throw new Error(`Error en obtener la categoría web por default: ${response.status}`);
+
+    let data = await response.json();
+    return data.id;
+
+  } catch (e) {
+    console.error(e.message);
+  }
+}
+
+async function getCategoryIdDobleFilo() {
+  try {
+    let response = await fetch(`http://127.0.0.1:8000/api/v1/categories/web/codigo/doble-filo`, {
+      method: "GET",
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (!response.ok) throw new Error(`Error en obtener el ID de la categoría Doble Filo: ${response.status}`);
+
+    let data = await response.json();
+    return data.id || null;
+
+  } catch (e) {
+    console.error(e.message);
+    return null;
+  }
+}
+async function getWebsDobleFilo() {
+  let id_user = await getUserLogged();
+  let id_doble_filo = await getCategoryIdDobleFilo();
+
+  if (!id_user) {
+    console.warn("No se puede obtener el id_user.");
+    return [];
+  }
+  if (!id_doble_filo) {
+    console.error("No se puede obtener el ID de categoría 'Doble Filo'.");
+    return [];
+  }
+
+  try {
+    let response = await fetch(`http://127.0.0.1:8000/api/v1/website-users/users/${id_user}/categories/${id_doble_filo}/domains`, {
+      method: "GET",
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (response.status === 404) return [];
+    if (!response.ok) throw new Error(`Error al obtener la lista de sitios Doble Filo del usuario: ${response.status}`);
+
+    const data = await response.json();
+    if (Array.isArray(data) && data.length === 0) console.log("No tiene sitios Doble Filo registrados");
+    else console.log("Lista de sitios Doble Filo: ", data);
+    return Array.isArray(data) ? data : [];
+
+  } catch (e) {
+    console.error(e.message);
+    return [];
+  }
 }
 
 
