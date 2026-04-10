@@ -57,7 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const result = await response.json();
       await chrome.storage.local.set({ "user_id": result.id });
-      await isUserConnected();
+      await loadScreen();
 
     } catch (error) {
       console.error(error.message);
@@ -81,42 +81,180 @@ document.addEventListener('DOMContentLoaded', () => {
       password: password,
     };
 
-    try {
-      const response = await fetch('http://127.0.0.1:8000/api/v1/users/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(user)
-      });
-
-      if (!response.ok)
-        throw new Error(`Error al iniciar sesión: ${response.status}`);
-
-      const data = await response.json();
-      const payload = parseJwt(data.access_token);
-
-      if (payload && payload.sub) {
-        const userId = payload.sub;
-        const expirationTime = Date.now() + (data.expires_in * 1000);
-
-        await chrome.storage.local.set({
-          "access_token": data.access_token,
-          "user_id": userId,
-          "expires_at": expirationTime
-        });
-
-        await isUserConnected();
-      } else {
-        alert("Token inválido: No se pudo obtener la identidad del usuario.");
-      }
-    } catch (error) {
-      console.error(error.message);
-    }
+    await login(user);
   });
 
   // --- NAVEGACIÓN ENTRE PAGINAS ---
   document.getElementById('btn-go-to-register')?.addEventListener('click', showRegister);
   document.getElementById('btn-go-to-auth')?.addEventListener('click', showAuth);
+
+  // --- CERRRAR SESIÓN ---
+  document.getElementById('btn-logout')?.addEventListener('click', logout);
 });
+
+
+
+// :::: FUNCIONES DOM ::::
+
+async function loadScreen() {
+  let { user_id, assigned_rest_time = 0 } = await chrome.storage.local.get(["user_id", "assigned_rest_time"]);
+
+  const registerScreen = document.getElementById('register-screen');
+  const authScreen = document.getElementById('auth-screen');
+  const dashboardScreen = document.getElementById('dashboard-screen');
+
+  if (user_id) { // Usuario logeado
+    registerScreen.hidden = true;
+    authScreen.hidden = true;
+    dashboardScreen.hidden = false;
+
+    const domain = await getCurrentDomain();
+    const domainElement = document.getElementById("domain");
+    if (domainElement) domainElement.innerHTML = domain;
+
+    const timerElement = document.getElementById("display-timer");
+    if (timerElement) timerElement.textContent = formatMinutes(assigned_rest_time);
+
+  } else {
+    registerScreen.hidden = false;
+    authScreen.hidden = true;
+    dashboardScreen.hidden = true;
+  }
+}
+
+async function login(user) {
+  try {
+    const response = await fetch('http://127.0.0.1:8000/api/v1/users/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(user)
+    });
+
+    if (!response.ok)
+      throw new Error(`Error al iniciar sesión: ${response.status}`);
+
+    const data = await response.json();
+    const payload = parseJwt(data.access_token);
+
+    if (payload && payload.sub) {
+      const userId = payload.sub;
+      const expirationTime = Date.now() + (data.expires_in * 1000);
+
+      await chrome.storage.local.set({
+        "access_token": data.access_token,
+        "user_id": userId,
+        "expires_at": expirationTime
+      });
+
+      initializeStorage();
+      await loadScreen();
+
+    } else {
+      alert("Token inválido: No se pudo obtener la identidad del usuario.");
+    }
+  } catch (error) {
+    console.error(error.message);
+  }
+}
+async function logout() {
+
+  // Mostramos la pantalla de Registro
+  showRegister();
+
+  updateTimeSpent(); // Subimos los datos del Storage al Backend
+  deleteAlarms(); // Eliminar pulso
+  clearAllStorage(); // Limpiamos el Storage completo
+
+}
+
+function showRegister() {
+  document.getElementById('register-screen').hidden = false;
+  document.getElementById('auth-screen').hidden = true;
+  document.getElementById('dashboard-screen').hidden = true;
+}
+function showAuth() {
+  document.getElementById('register-screen').hidden = true;
+  document.getElementById('auth-screen').hidden = false;
+  document.getElementById('dashboard-screen').hidden = true;
+}
+function showDashboard() {
+  document.getElementById('register-screen').hidden = true;
+  document.getElementById('auth-screen').hidden = true;
+  document.getElementById('dashboard-screen').hidden = false;
+}
+
+
+// :::: FUNCIONES ON-MESSAGE ::::
+
+function initializeStorage() {
+
+  chrome.runtime.sendMessage("initialize-storage", (response) => {
+    if (chrome.runtime.lastError) {
+      console.error("Error:", chrome.runtime.lastError);
+      return;
+    }
+    if (response.status === "success")
+      console.log("Storage inicializado exitosamente");
+    else
+      console.error("Storage no se pudo inicializar", response.message);
+  });
+
+}
+function initializeStorage2() {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage("initialize-storage", (response) => {
+      if (chrome.runtime.lastError) {
+        console.error("Error:", chrome.runtime.lastError);
+        resolve();
+        return;
+      }
+      if (response.status === "success")
+        console.log("Storage inicializado exitosamente");
+      else
+        console.error("Storage no se pudo inicializar", response.message);
+      resolve();
+    });
+  });
+}
+function updateTimeSpent() {
+  chrome.runtime.sendMessage("update-time-spent", (response) => {
+    if (chrome.runtime.lastError) {
+      console.error("Error:", chrome.runtime.lastError);
+      return;
+    }
+    if (response.status === "success")
+      console.log("Tiempo usado actualizado en la BD exitosamente");
+    else
+      console.error("El tiempo usado no se pudo actualizar en la BD", response.message);
+  });
+}
+function deleteAlarms() {
+  chrome.runtime.sendMessage("delete-alarms", (response) => {
+    if (chrome.runtime.lastError) {
+      console.error("Error:", chrome.runtime.lastError);
+      return;
+    }
+    if (response.status === "success")
+      console.log("Alarmas eliminadas exitosamente");
+    else
+      console.error("Las alarmas no se pudieron eliminar", response.message);
+  });
+}
+function clearAllStorage() {
+  chrome.runtime.sendMessage("clear-all-storage", (response) => {
+    if (chrome.runtime.lastError) {
+      console.error("Error:", chrome.runtime.lastError);
+      return;
+    }
+    if (response.status === "success")
+      console.log("Storage limpiado exitosamente");
+    else
+      console.error("El Storage no se pudo limpiar", response.message);
+  });
+}
+
+
+// :::: OTRAS FUNCIONES ::::
 
 function parseJwt(token) {
   try {
@@ -137,37 +275,17 @@ function parseJwt(token) {
     return null;
   }
 }
+function formatMinutes(totalMinutes) {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = Math.floor(totalMinutes % 60);
+  const seconds = 0; // Si solo tienes minutos, los segundos iniciales son 0
 
-const showRegister = () => {
-  document.getElementById('register-screen').hidden = false;
-  document.getElementById('auth-screen').hidden = true;
-};
-const showAuth = () => {
-  document.getElementById('register-screen').hidden = true;
-  document.getElementById('auth-screen').hidden = false;
-};
+  // Usamos padStart para asegurar que siempre haya 2 dígitos (ej: 02:05:00)
+  const hDisplay = String(hours).padStart(2, '0');
+  const mDisplay = String(minutes).padStart(2, '0');
+  const sDisplay = String(seconds).padStart(2, '0');
 
-async function isUserConnected() {
-  let { user_id } = await chrome.storage.local.get("user_id");
-
-  const registerScreen = document.getElementById('register-screen');
-  const authScreen = document.getElementById('auth-screen');
-  const dashboardScreen = document.getElementById('dashboard-screen');
-
-  if (user_id) { // Usuario logeado
-    registerScreen.hidden = true;
-    authScreen.hidden = true;
-    dashboardScreen.hidden = false;
-
-    const domain = await getCurrentDomain();
-    const domainElement = document.getElementById("domain");
-    if (domainElement) domainElement.innerHTML = domain;
-
-  } else {
-    registerScreen.hidden = false;
-    authScreen.hidden = true;
-    dashboardScreen.hidden = true;
-  }
+  return `${hDisplay}:${mDisplay}:${sDisplay}`;
 }
 
 async function getCurrentTab() {
@@ -187,4 +305,11 @@ async function getCurrentDomain() {
   }
 }
 
-await isUserConnected();
+
+
+await loadScreen();
+chrome.storage.onChanged.addListener(async (changes, areaName) => {
+  if (areaName === "local" && "assigned_rest_time" in changes) {
+    await loadScreen();
+  }
+});

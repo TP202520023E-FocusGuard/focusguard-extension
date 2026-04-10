@@ -24,6 +24,12 @@ body {
   /*border: 1px solid #000;*/
 }
 
+#btn-logout {
+  cursor: pointer;
+  color: blue;
+  text-decoration: underline;
+}
+
 .popup-info {
   height: 1200px;
   display: flex;
