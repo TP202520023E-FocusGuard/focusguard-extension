@@ -80,6 +80,14 @@ function handleOnMessageExternal(request, sender, sendResponse) {
     });
     return true;
   }
+  else if (request.action === "update-rest-time") {
+
+    updateRestTimeLocal(request.newRestTime)
+      .then(() => sendResponse({ status: "success" }))
+      .catch((error) => sendResponse({ status: "error", message: error.message }));
+
+    return true;
+  }
 }
 
 async function handleWindowsChangedAnterior(windowId) {
@@ -808,7 +816,6 @@ async function getAssignedRestTime(userId) {
   }
 
 }
-
 async function updateTimeSpent() {
   const id_user = await getUserLogged();
   let { accumulated_leisure_time } = await chrome.storage.local.get("accumulated_leisure_time");
@@ -1000,6 +1007,20 @@ async function openNewWebAndContent(newTab, leisure_start) {
 
     await chrome.storage.local.set(updates);
   }
+}
+
+async function updateRestTimeLocal(newRestTime) {
+
+  try {
+    if (newRestTime)
+      await chrome.storage.local.set({ "assigned_rest_time": newRestTime });
+    else
+      throw new Error("El tiempo proporcionado no es válido");
+  } catch (e) {
+    console.error("No se pudo actualizar el tiempo de descanso: ", e.message);
+    throw e;
+  }
+
 }
 
 async function init() {
