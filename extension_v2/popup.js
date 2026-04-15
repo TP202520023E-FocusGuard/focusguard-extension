@@ -97,7 +97,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // :::: FUNCIONES DOM ::::
 
 async function loadScreen() {
-  let { user_id, assigned_rest_time = 0 } = await chrome.storage.local.get(["user_id", "assigned_rest_time"]);
+  let { user_id, assigned_rest_time = 0, accumulated_leisure_time = 0 } = await chrome.storage.local.get(["user_id", "assigned_rest_time", "accumulated_leisure_time"]);
 
   const registerScreen = document.getElementById('register-screen');
   const authScreen = document.getElementById('auth-screen');
@@ -112,8 +112,13 @@ async function loadScreen() {
     const domainElement = document.getElementById("domain");
     if (domainElement) domainElement.innerHTML = domain;
 
+    const catWeb = await getCurrentDomain();
+    const catWebElement = document.getElementById("category-web");
+    if (catWebElement) catWebElement.innerHTML = catWeb;
+
+    const resttime_left = assigned_rest_time * 60 - accumulated_leisure_time;
     const timerElement = document.getElementById("display-timer");
-    if (timerElement) timerElement.textContent = formatMinutes(assigned_rest_time);
+    if (timerElement) timerElement.textContent = formatMinutes(resttime_left);
 
   } else {
     registerScreen.hidden = false;
@@ -275,10 +280,10 @@ function parseJwt(token) {
     return null;
   }
 }
-function formatMinutes(totalMinutes) {
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = Math.floor(totalMinutes % 60);
-  const seconds = 0; // Si solo tienes minutos, los segundos iniciales son 0
+function formatMinutes(totalSeconds) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = Math.floor(totalSeconds % 60);
 
   // Usamos padStart para asegurar que siempre haya 2 dígitos (ej: 02:05:00)
   const hDisplay = String(hours).padStart(2, '0');
@@ -309,7 +314,12 @@ async function getCurrentDomain() {
 
 await loadScreen();
 chrome.storage.onChanged.addListener(async (changes, areaName) => {
-  if (areaName === "local" && "assigned_rest_time" in changes) {
+  if (areaName !== "local") return;
+  // TODO[Mejora]: cuando en el local storage se cambie la categoria de algun sitio o contenido, actualizar el Dashboard
+  const keysToWatch = ["accumulated_leisure_time", "assigned_rest_time"];
+  const hasRevelantChange = keysToWatch.some(key => key in changes);
+
+  if (hasRevelantChange) {
     await loadScreen();
   }
 });

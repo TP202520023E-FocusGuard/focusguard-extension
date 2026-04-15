@@ -1,6 +1,5 @@
 const DEFAULT_ORIGIN = "default";
 let timerContent = null;
-let processingTabId = null;
 let focusTimeout = null;
 
 
@@ -45,27 +44,7 @@ async function handleOnStartup() {
   }
 
 }
-async function handleOnMessage2(message, sender, sendResponse) {
-  if (message === "initialize-storage") {
-    await initializeStorage()
-      .then(() => sendResponse({ status: "success" }))
-      .catch((error) => sendResponse({ status: "error", message: error.message }));
-    return true;
-  }
-  else if (message === "update-time-spent") {
-    await updateTimeSpent()
-      .then(() => sendResponse({ status: "success" }))
-      .catch((error) => sendResponse({ status: "error", message: error.message }));
-    return true;
-  }
-  else if (message === "delete-alarms") {
-    await deleteAlarms()
-      .then(() => sendResponse({ status: "success" }))
-      .catch((error) => sendResponse({ status: "error", message: error.message }));
-    return true;
-  }
-}
-async function handleOnMessage(message, sender, sendResponse) {
+function handleOnMessage(message, sender, sendResponse) {
 
   const actions = {
     "initialize-storage": initializeStorage,
@@ -86,6 +65,17 @@ async function handleOnMessage(message, sender, sendResponse) {
   }
 
   return false; // Opcional: manejar mensajes no reconocidos
+}
+function handleOnMessageExternal(request, sender, sendResponse) {
+  if (request.action === "GET_CONSUMED_TIME") {
+    chrome.storage.local.get(["accumulated_leisure_time"], (data) => {
+      sendResponse({
+        status: "success",
+        timeUsed: Math.floor((data.accumulated_leisure_time || 0) / 60) // convertir a minutos
+      });
+    });
+    return true;
+  }
 }
 
 async function handleWindowsChangedAnterior(windowId) {
@@ -210,8 +200,10 @@ async function handleWindowsChanged(windowId) {
     focusTimeout = null;
     console.log("---- WINDOW CHANGED ----", windowId);
 
-    const storageKeys = ["tabs_tracking", "content_tracking", "last_web_activated", "focus_chrome", "leisure_start"];
-    let { tabs_tracking = {}, content_tracking = {}, last_web_activated, focus_chrome, leisure_start} = await chrome.storage.local.get(storageKeys);
+    const storageKeys = ["tabs_tracking", "content_tracking", "last_web_activated", "focus_chrome", "leisure_start", "user_id"];
+    let { tabs_tracking = {}, content_tracking = {}, last_web_activated, focus_chrome, leisure_start, user_id = null} = await chrome.storage.local.get(storageKeys);
+
+    if (user_id === null) return; // Cuando se cierra sesión, el WindowsChanged se ejecuta despues de haber limpiado el Storage debido al focusTimeout(500)
 
     // ESCENARIO 1: Salida de Chrome (o posible salida rápida)
     if (windowId === chrome.windows.WINDOW_ID_NONE) {
@@ -256,11 +248,6 @@ async function handleWindowsChanged(windowId) {
       await setFocusChrome(true);
       await openNewWebAndContent(activeTab, leisure_start);
       console.log("ESCENARIO 2: Volvió a Chrome después de estar fuera");
-
-      /* TODO[Si se considera necesario]: Cuando estas fuera y vuelves a Chrome pero a una pestaña
-          distinta de dónde lo dejaste entonces se activa el handleUpdated y el handleWindowsChanged,
-          esto registra 2 veces la visita pero no cierra la 1era visita. Tal vez se podría solucionar
-          si preguntaramos a la BD si la ultima visita es de la misma web para ya no registralo otra vez */
     }
     else {
       // ESCENARIO 3: El usuario solo se movió entre ventanas o pestañas de Chrome
@@ -298,22 +285,6 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
   if(changeInfo.status === 'complete') {
     let id_web_before = tabs_tracking[tabId.toString()];
 
-/*
-    if (id_web_before) { // Si ya existía esta pestaña
-      if (focus_chrome) {
-        if (last_domain !== hostname) { // Cambio de sitio web en la misma pestaña
-          await updateWebDeparture(id_web_before, {fecha_hora_salida: new Date(Date.now())});
-          await setWebComplete(tabId, hostname);
-        }
-      } else { // Si estabas fuera de chrome y volviste, ya sea por haber presionado el botón de recargar página o de acceso directo a otra web, igual no se te debe registrar salida xq ya estabas fuera desde antes
-        await setWebComplete(tabId, hostname);
-        await setFocusChrome(true);
-      }
-    } else { // Si es el primer sitio web que visita
-      await setWebComplete(tabId, hostname);
-    }
-*/
-
     if (!id_web_before) { // Pestaña recién creada
       await setWebComplete(tabId, hostname);
     } else if (focus_chrome) { // Estabas dentro de Chrome y ya existía esta pestaña
@@ -338,8 +309,8 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
       timerContent = null;
     }
 
-    const websites_doble_filo = await getWebsDobleFilo();
-    const is_dobleFilo = websites_doble_filo.includes(hostname);
+    const webs_doblefilo_distractive = await getWebsDobleFiloAndDistractive();
+    const is_dobleFilo = webs_doblefilo_distractive.includes(hostname);
 
     if (is_dobleFilo) {
       // Inicio o cambio de contenido de ocio
@@ -396,8 +367,6 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
 }
 async function handleRemoved(tabId, removeInfo) {
 
-  // TODO[Tal vez]: Cuando se cierra la ventana entera (todas las pestañas)
-
   const storageKeys = ["tabs_tracking", "content_tracking", "last_web_activated", "focus_chrome"];
   let { tabs_tracking = {}, content_tracking = {}, last_web_activated, focus_chrome } = await chrome.storage.local.get(storageKeys);
 
@@ -417,7 +386,6 @@ async function handleRemoved(tabId, removeInfo) {
   await chrome.storage.local.set({tabs_tracking, content_tracking});
 }
 async function handleActivated(activeInfo) {
-  // Bloqueo instantáneo (Compartido con handleWindowsChanged()): Si ya estamos procesando este ID, abortamos sin esperar al storage
 
   console.log("---- ACTIVATED ----");
 
@@ -431,7 +399,15 @@ async function handleActivated(activeInfo) {
     // Guardamos el nuevo ID activo de inmediato
     await chrome.storage.local.set({ "last_web_activated": newTabId });
 
-    if (!oldTabId) return; // verificamos si existe alguna web anterior o si esta será la primera
+    // verificamos si existe alguna web anterior o si esta será la primera
+    if (!oldTabId) {
+      let tab_info = await chrome.tabs.get(newTabId);
+      const hostname = (tab_info && tab_info.url) ? new URL(tab_info.url).hostname : null;
+
+      await chrome.storage.local.set({ "last_domain": hostname, "focus_chrome": true });
+
+      return;
+    }
 
     // --- REGISTRO DE SALIDA ---
     // Si focus_chrome es false significa que el usuario clickeo otra pestaña al reenfocarse a Chrome
@@ -742,14 +718,14 @@ async function getDefaultCategoryContent() {
   }
 }
 
-async function getCategoryIdDobleFilo() {
+async function getCategoryIdByCode(code) {
   try {
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/categories/web/codigo/doble-filo`, {
+    let response = await fetch(`http://127.0.0.1:8000/api/v1/categories/web/codigo/${code}`, {
       method: "GET",
       headers: {"Content-Type": "application/json"}
     });
 
-    if (!response.ok) throw new Error(`Error en obtener el ID de la categoría Doble Filo: ${response.status}`);
+    if (!response.ok) throw new Error(`Error en obtener el ID de la categoría ${code}: ${response.status}`);
 
     let data = await response.json();
     return data.id || null;
@@ -759,9 +735,10 @@ async function getCategoryIdDobleFilo() {
     return null;
   }
 }
-async function getWebsDobleFilo() {
+async function getWebsDobleFiloAndDistractive() {
   let id_user = await getUserLogged();
-  let id_doble_filo = await getCategoryIdDobleFilo();
+  let id_doble_filo = await getCategoryIdByCode("doble-filo");
+  let id_distractivo = await getCategoryIdByCode("distractivo");
 
   if (!id_user) {
     console.warn("No se puede obtener el id_user.");
@@ -771,18 +748,37 @@ async function getWebsDobleFilo() {
     console.error("No se puede obtener el ID de categoría 'Doble Filo'.");
     return [];
   }
+  if (!id_distractivo) {
+    console.error("No se puede obtener el ID de categoría 'Distractivo'.");
+    return [];
+  }
 
   try {
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/website-users/users/${id_user}/categories/${id_doble_filo}/domains`, {
+    // OBTENEMOS LOS HOSTNAMES DE LOS SITIOS DOBLE FILO DEL USUARIO
+    let res_doblefilo = await fetch(`http://127.0.0.1:8000/api/v1/website-users/users/${id_user}/categories/${id_doble_filo}/domains`, {
       method: "GET",
       headers: {"Content-Type": "application/json"}
     });
 
-    if (response.status === 404) return [];
-    if (!response.ok) throw new Error(`Error al obtener la lista de sitios Doble Filo del usuario: ${response.status}`);
+    if (res_doblefilo.status === 404) return [];
+    if (!res_doblefilo.ok) throw new Error(`Error al obtener la lista de sitios Doble Filo del usuario: ${res_doblefilo.status}`);
 
-    const data = await response.json();
-    return Array.isArray(data) ? data : [];
+    const data_doblefilo = await res_doblefilo.json();
+    let array_doblefilo = Array.isArray(data_doblefilo) ? data_doblefilo : [];
+
+    // OBTENEMOS LOS HOSTNAMES DE LOS SITIOS DISTRACTIVOS DEL USUARIO
+    let res_distractivo = await fetch(`http://127.0.0.1:8000/api/v1/website-users/users/${id_user}/categories/${id_distractivo}/domains`, {
+      method: "GET",
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (res_distractivo.status === 404) return [];
+    if (!res_distractivo.ok) throw new Error(`Error al obtener la lista de sitios Distractivos del usuario: ${res_distractivo.status}`);
+
+    const data_distractivo = await res_distractivo.json();
+    let array_distractivo = Array.isArray(data_distractivo) ? data_distractivo : [];
+
+    return array_distractivo.concat(array_doblefilo);
 
   } catch (e) {
     console.error(e.message);
@@ -832,29 +828,6 @@ async function updateTimeSpent() {
   }
 }
 
-async function updateAssignedRestTimeAndInterventionsState() {
-
-  let assigned_rest_time = null;
-  const id_user = await getUserLogged();
-
-  try {
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/rest-time/${id_user}`, {
-      method: "GET",
-      headers: {"Content-Type": "application/json"}
-    });
-
-    if (!response.ok) throw new Error(`Error en obtener el tiempo de descanso del usuario: ${response.status}`);
-
-    let data = await response.json();
-    assigned_rest_time = data.tiempo_total;
-
-  } catch (e) {
-    console.error(e.message);
-  }
-
-  await chrome.storage.local.set(assigned_rest_time ? { assigned_rest_time, "interventionsAllowed": false } : { "interventionsAllowed": true });
-}
-
 
 
 // :::::: FUNCIONES OPERATIVAS ::::::
@@ -884,7 +857,7 @@ async function setFocusChrome(isFocused) {
 async function checkAlarmState() {
   const alarm = await chrome.alarms.get("pulse");
 
-  if (!alarm) await chrome.alarms.create("pulse", { periodInMinutes: 5 });
+  if (!alarm) await chrome.alarms.create("pulse", { periodInMinutes: 1 });
 }
 
 async function initializeStorage() {
@@ -981,14 +954,16 @@ async function closeOldWebAndContent(tabs_tracking, content_tracking, oldTabId) 
 async function openNewWebAndContent(newTab, leisure_start) {
   // APERTURA de la nueva pestaña (si existe y es válida)
   if (newTab) {
-    let updates = { last_web_activated: newTab.id };
+    const hostname = new URL(newTab.url).hostname;
+    let updates = {
+      last_web_activated: newTab.id,
+      last_domain: hostname
+    };
 
     if (isHttpUrl(newTab.url)) {
-      const hostname = new URL(newTab.url).hostname;
-      const websites_doble_filo = await getWebsDobleFilo();
-      const isLeisure = websites_doble_filo.includes(hostname);
 
-      updates.last_domain = hostname;
+      const webs_doblefilo_distractive = await getWebsDobleFiloAndDistractive();
+      const isLeisure = webs_doblefilo_distractive.includes(hostname);
 
       await setWebComplete(newTab.id, hostname);
 
@@ -1016,13 +991,13 @@ async function init() {
 
 // :::::: LISTENERS ::::::
 
-chrome.runtime.onInstalled.addListener(async ({ reason }) => {
+chrome.runtime.onInstalled.addListener(({ reason }) => {
   console.log("Installed");
   // await handleOnStartup();
 
   if (reason === 'install') {
     // CREAMOS ALARMA (PULSO)
-    //await chrome.alarms.create('pulse', {periodInMinutes: 5});
+    //await chrome.alarms.create('pulse', {periodInMinutes: 1});
 
     // GUARDAMOS EL TIEMPO LIBRE ASIGNADO  Y  PERMITIMOS LAS INTERVENCIONES O NO
     // await updateAssignedRestTimeAndInterventionsState();
@@ -1030,6 +1005,7 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
 });
 chrome.runtime.onStartup.addListener(withAuth(handleOnStartup));
 chrome.runtime.onMessage.addListener(handleOnMessage);
+chrome.runtime.onMessageExternal.addListener(handleOnMessageExternal);
 
 chrome.windows.onFocusChanged.addListener(withAuth(handleWindowsChanged));
 
