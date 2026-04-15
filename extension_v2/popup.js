@@ -205,22 +205,6 @@ function initializeStorage() {
   });
 
 }
-function initializeStorage2() {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage("initialize-storage", (response) => {
-      if (chrome.runtime.lastError) {
-        console.error("Error:", chrome.runtime.lastError);
-        resolve();
-        return;
-      }
-      if (response.status === "success")
-        console.log("Storage inicializado exitosamente");
-      else
-        console.error("Storage no se pudo inicializar", response.message);
-      resolve();
-    });
-  });
-}
 function updateTimeSpent() {
   chrome.runtime.sendMessage("update-time-spent", (response) => {
     if (chrome.runtime.lastError) {

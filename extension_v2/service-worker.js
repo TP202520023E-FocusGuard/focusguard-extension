@@ -57,9 +57,13 @@ function handleOnMessage(message, sender, sendResponse) {
 
   if (action) {
 
-    action()
-      .then(() => sendResponse({ status: "success" }))
-      .catch((error) => sendResponse({ status: "error", message: error.message }));
+    try {
+      action();
+      sendResponse({ status: "success" });
+    } catch (error) {
+      console.error("Error en la acción:", error);
+      sendResponse({ status: "error", message: error.message });
+    }
 
     return true; // Mantenemos el canal abierto para la respuesta asíncrona
   }
@@ -1004,8 +1008,8 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
   }
 });
 chrome.runtime.onStartup.addListener(withAuth(handleOnStartup));
-chrome.runtime.onMessage.addListener(handleOnMessage);
-chrome.runtime.onMessageExternal.addListener(handleOnMessageExternal);
+chrome.runtime.onMessage.addListener(withAuth(handleOnMessage));
+chrome.runtime.onMessageExternal.addListener(withAuth(handleOnMessageExternal));
 
 chrome.windows.onFocusChanged.addListener(withAuth(handleWindowsChanged));
 
