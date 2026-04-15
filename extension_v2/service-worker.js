@@ -853,6 +853,22 @@ function withAuth(handler) {
     }
   };
 }
+function withAuthMessage(handler) {
+  // Wrapper especial para Mensajes (onMessage y onMessageExternal)
+
+  return (message, sender, sendResponse) => {
+    chrome.storage.local.get("user_id", ({ user_id }) => {
+      if (user_id) {
+        handler(message, sender, sendResponse);
+      } else {
+        sendResponse({ status: "error", message: "Usuario no autenticado en la extensión" });
+      }
+    });
+
+    return true;
+  };
+}
+
 async function setFocusChrome(isFocused) {
   await chrome.storage.local.set({"focus_chrome": isFocused});
   let { focus_chrome } = await chrome.storage.local.get("focus_chrome");
@@ -1008,8 +1024,8 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
   }
 });
 chrome.runtime.onStartup.addListener(withAuth(handleOnStartup));
-chrome.runtime.onMessage.addListener(withAuth(handleOnMessage));
-chrome.runtime.onMessageExternal.addListener(withAuth(handleOnMessageExternal));
+chrome.runtime.onMessage.addListener(withAuthMessage(handleOnMessage));
+chrome.runtime.onMessageExternal.addListener(withAuthMessage(handleOnMessageExternal));
 
 chrome.windows.onFocusChanged.addListener(withAuth(handleWindowsChanged));
 
