@@ -412,9 +412,39 @@ async function handleActivated(activeInfo) {
     await chrome.storage.local.set({ "last_web_activated": newTabId });
 
     // verificamos si existe alguna web anterior o si esta será la primera
+    /*
     if (!oldTabId) {
-      let tab_info = await chrome.tabs.get(newTabId);
-      const hostname = (tab_info && tab_info.url) ? new URL(tab_info.url).hostname : null;
+      try {
+        const tab_info = await chrome.tabs.get(newTabId);
+        if (!tab_info?.url) return;
+
+        let domain;
+
+        if (isHttpUrl(tab_info.url)) {
+          domain = new URL(tab_info.url).hostname;
+        } else {
+          const urlObj = new URL(tab_info.url);
+          domain = `${urlObj.protocol}//${urlObj.hostname}`;
+        }
+
+        await chrome.storage.local.set({ "last_domain": domain, "focus_chrome": true });
+
+      } catch (error) {
+        console.error("Error si esta es la primera pestaña en registrarse:", error.message);
+      }
+
+      return;
+    }
+*/
+
+    if (!oldTabId) {
+      let hostname = null;
+      try {
+        let tab_info = await chrome.tabs.get(newTabId);
+        hostname = (tab_info?.url) ? new URL(tab_info.url).hostname : null;
+      } catch (e) {
+        console.error("Error de lógica en el Activated cuando es la primera pestaña. ", e.message);
+      }
 
       await chrome.storage.local.set({ "last_domain": hostname, "focus_chrome": true });
 
@@ -441,46 +471,50 @@ async function handleActivated(activeInfo) {
 
 async function handleAlarm(alarm) {
 
-  if (alarm.name !== "pulse") return;
-  console.log (":::: PULSO de 1m ::::")
+  if (alarm.name === "pulse") {
+    console.log (":::: PULSE ALARM de 1m ::::")
 
-  // await updateAssignedRestTimeAndInterventionsState(); // ::: CREO QUE YA NO VA :::
+    const storageKeys = ["tabs_tracking", "content_tracking", "last_web_activated", "focus_chrome", "leisure_start"];
+    let { tabs_tracking = {}, content_tracking = {}, last_web_activated, focus_chrome, leisure_start } = await chrome.storage.local.get(storageKeys);
 
-  const storageKeys = ["tabs_tracking", "content_tracking", "last_web_activated", "focus_chrome", "leisure_start"];
-  let { tabs_tracking = {}, content_tracking = {}, last_web_activated, focus_chrome, leisure_start } = await chrome.storage.local.get(storageKeys);
+    try {
+      const windows = await chrome.windows.getAll({ populate: false });
+      const anyWindowFocused = windows.some(win => win.focused === true);
 
-  try {
-    const windows = await chrome.windows.getAll({ populate: false });
-    const anyWindowFocused = windows.some(win => win.focused === true);
+      if (focus_chrome) { // Si estabas dentro de Chrome...
 
-    if (focus_chrome) { // Si estabas dentro de Chrome...
+        // Tanto si el usuario se fue o si sigue dentro de Chrome, se registra/actualiza su salida
+        await closeOldWebAndContent(tabs_tracking, content_tracking, last_web_activated);
 
-      // Tanto si el usuario se fue o si sigue dentro de Chrome, se registra/actualiza su salida
-      await closeOldWebAndContent(tabs_tracking, content_tracking, last_web_activated);
+        // Y ahora se nota que ya no estas
+        if (!anyWindowFocused)
+          await setFocusChrome(false);
+        else {
+          // Se renueva solo si ya se estaba en ocio antes de actualizar el leisure_start
+          if (leisure_start) await chrome.storage.local.set({ "leisure_start": Date.now() });
+        }
 
-      // Y ahora se nota que ya no estas
-      if (!anyWindowFocused)
-        await setFocusChrome(false);
-      else {
-        // Se renueva solo si ya se estaba en ocio antes de actualizar el leisure_start
-        if (leisure_start) await chrome.storage.local.set({ "leisure_start": Date.now() });
+      } else { // Si NO estabas dentro de Chrome...
+        if (!anyWindowFocused) { // Y sigues fuera, no se hace nada
+          return;
+        }
+        else { // Y has vuelto a la MISMA pestaña, se registra una nueva visita
+          const [active_tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+
+          await openNewWebAndContent(active_tab, leisure_start);
+          await setFocusChrome(true);
+        }
       }
 
-    } else { // Si NO estabas dentro de Chrome...
-      if (!anyWindowFocused) { // Y sigues fuera, no se hace nada
-        return;
-      }
-      else { // Y has vuelto a la MISMA pestaña, se registra una nueva visita
-        const [active_tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-
-        await openNewWebAndContent(active_tab, leisure_start);
-        await setFocusChrome(true);
-      }
+    } catch (e) {
+      console.error("Error en auditoría de alarma:", e);
     }
-
-  } catch (e) {
-    console.error("Error en auditoría de alarma:", e);
   }
+  else if (alarm.name === "upload") {
+    console.log (":::: UPLOAD ALARM de 1hr ::::")
+    await uploadDataStorage();
+  }
+
 }
 
 
@@ -839,6 +873,34 @@ async function updateTimeSpent() {
   }
 }
 
+async function uploadDataStorage() {
+
+  try {
+    let { accumulated_leisure_time } = await chrome.storage.local.get("accumulated_leisure_time");
+
+    if (accumulated_leisure_time) {
+      const id_user = await getUserLogged();
+
+      const timeUpdated = {
+        tiempo_usado: Math.floor(accumulated_leisure_time / 60)
+      };
+
+      let response = await fetch(`http://127.0.0.1:8000/api/v1/rest-time/${id_user}`, {
+        method: "PUT",
+        body: JSON.stringify(timeUpdated),
+        headers: {"Content-Type": "application/json"}
+      });
+
+      if (!response.ok) throw new Error(`Error al actualizar el tiempo usado en el BACKEND: ${response.status}`);
+
+    }
+
+  } catch (e) {
+    console.error("Error al subir la data del storage al backend", e.message);
+    throw e;
+  }
+
+}
 
 
 // :::::: FUNCIONES OPERATIVAS ::::::
@@ -882,9 +944,13 @@ async function setFocusChrome(isFocused) {
   console.log("Esta en chrome?: ", focus_chrome);
 }
 async function checkAlarmState() {
-  const alarm = await chrome.alarms.get("pulse");
+  const allAlarms = await chrome.alarms.getAll();
 
-  if (!alarm) await chrome.alarms.create("pulse", { periodInMinutes: 1 });
+  const hasPulse = allAlarms.some(a => a.name === "pulse");
+  const hasUpload = allAlarms.some(a => a.name === "upload");
+
+  if (!hasPulse) await chrome.alarms.create("pulse", { periodInMinutes: 1 });
+  if (!hasUpload) await chrome.alarms.create("upload", { periodInMinutes: 2 });
 }
 
 async function initializeStorage() {
@@ -1034,14 +1100,9 @@ async function init() {
 
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   console.log("Installed");
-  // await handleOnStartup();
 
   if (reason === 'install') {
-    // CREAMOS ALARMA (PULSO)
-    //await chrome.alarms.create('pulse', {periodInMinutes: 1});
 
-    // GUARDAMOS EL TIEMPO LIBRE ASIGNADO  Y  PERMITIMOS LAS INTERVENCIONES O NO
-    // await updateAssignedRestTimeAndInterventionsState();
   }
 });
 chrome.runtime.onStartup.addListener(withAuth(handleOnStartup));
