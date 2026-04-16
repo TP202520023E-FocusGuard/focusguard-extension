@@ -850,55 +850,56 @@ async function getAssignedRestTime(userId) {
   }
 
 }
-async function updateTimeSpent() {
-  const id_user = await getUserLogged();
-  let { accumulated_leisure_time } = await chrome.storage.local.get("accumulated_leisure_time");
-
-  if (accumulated_leisure_time) {
-    const rest_time_spent = { tiempo_usado: accumulated_leisure_time };
-
-    try {
-      let response = await fetch(`http://127.0.0.1:8000/api/v1/rest-time/${id_user}`, {
-        method: "UPDATE",
-        body: JSON.stringify(rest_time_spent),
-        headers: {"Content-Type": "application/json"}
-      });
-
-      if (!response.ok) throw new Error(`Error al actualizar el tiempo usado de descanso en la BD: ${response.status}`);
-
-    } catch (e) {
-      console.error(e.message);
-      throw e;
-    }
-  }
-}
-
-async function uploadDataStorage() {
+async function getRestTimeUsed(userId) {
 
   try {
+    let response = await fetch(`http://127.0.0.1:8000/api/v1/rest-time/${userId}`, {
+      method: "GET",
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (!response.ok) throw new Error(`Error en obtener el tiempo de descanso establecido: ${response.status}`);
+
+    let data = await response.json();
+    return data.tiempo_usado;
+
+  } catch (e) {
+    console.error(e.message);
+    return 0;
+  }
+
+}
+async function updateTimeSpent() {
+  try {
     let { accumulated_leisure_time } = await chrome.storage.local.get("accumulated_leisure_time");
+    if (!accumulated_leisure_time) return;
+    const accumulated_minutes = Math.floor(accumulated_leisure_time / 60);
 
-    if (accumulated_leisure_time) {
-      const id_user = await getUserLogged();
+    const id_user = await getUserLogged();
+    const total_time = await getRestTimeUsed(id_user);
 
-      const timeUpdated = {
-        tiempo_usado: Math.floor(accumulated_leisure_time / 60)
-      };
+    // Seguro para cuando se desinstala la extensión o similares
+    let new_time_spent = total_time + Math.abs(accumulated_minutes - total_time);
 
-      let response = await fetch(`http://127.0.0.1:8000/api/v1/rest-time/${id_user}`, {
-        method: "PUT",
-        body: JSON.stringify(timeUpdated),
-        headers: {"Content-Type": "application/json"}
-      });
+    const timeUpdated = { tiempo_usado: new_time_spent };
 
-      if (!response.ok) throw new Error(`Error al actualizar el tiempo usado en el BACKEND: ${response.status}`);
+    let response = await fetch(`http://127.0.0.1:8000/api/v1/rest-time/${id_user}`, {
+      method: "PUT",
+      body: JSON.stringify(timeUpdated),
+      headers: {"Content-Type": "application/json"}
+    });
 
-    }
+    if (!response.ok) throw new Error(`Error al actualizar el tiempo usado en el BACKEND: ${response.status}`);
 
   } catch (e) {
     console.error("Error al subir la data del storage al backend", e.message);
     throw e;
   }
+}
+
+async function uploadDataStorage() {
+
+  await updateTimeSpent();
 
 }
 
@@ -958,16 +959,23 @@ async function initializeStorage() {
   try {
     await checkAlarmState();
 
-    let { accumulated_leisure_time = 0 } = await chrome.storage.local.get("accumulated_leisure_time");
-
     let user_id = await getUserLogged();
+
+    let { accumulated_leisure_time = 0 } = await chrome.storage.local.get("accumulated_leisure_time");
+    const time_spent_local = accumulated_leisure_time;
+    const time_spent_db_min = await getRestTimeUsed(user_id);
+    const time_spent_db = time_spent_db_min * 60;
+
+    const accumulated_time = time_spent_local >= time_spent_db ? time_spent_local : time_spent_db;
+
     const [active_tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
 
     let updates = {"focus_chrome": true};
     updates.last_web_activated = active_tab ? active_tab.id : null;
-    updates.last_domain = (active_tab && active_tab.url) ? (new URL(active_tab.url).hostname) : null;
+    updates.last_domain = (active_tab?.url) ? new URL(active_tab.url).hostname : null;
     updates.assigned_rest_time = await getAssignedRestTime(user_id) || 0;
-    updates.interventions_allowed = ((accumulated_leisure_time ?? 0) >= (updates.assigned_rest_time * 60));
+    updates.interventions_allowed = ((accumulated_time ?? 0) >= (updates.assigned_rest_time * 60));
+    updates.accumulated_leisure_time = accumulated_time;
 
     await chrome.storage.local.set(updates);
     console.log("Inicialización del Storage: ", updates);
