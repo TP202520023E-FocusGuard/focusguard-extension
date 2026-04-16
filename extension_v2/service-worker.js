@@ -88,6 +88,16 @@ function handleOnMessageExternal(request, sender, sendResponse) {
 
     return true;
   }
+  else if (request.action === "web-category-updated") {
+    getWebsDobleFiloAndDistractive(true)
+      .then((hostnames) => {
+        console.log("Web Category updated: ", hostnames);
+        sendResponse({status: "success"})
+      })
+      .catch((error) => sendResponse({ status: "error", message: error.message }));
+
+    return true;
+  }
 }
 
 async function handleWindowsChangedAnterior(windowId) {
@@ -781,21 +791,15 @@ async function getCategoryIdByCode(code) {
     return null;
   }
 }
-async function getWebsDobleFiloAndDistractive() {
+async function getWebsDobleFiloAndDistractive(shouldThrow = false) {
   let id_user = await getUserLogged();
   let id_doble_filo = await getCategoryIdByCode("doble-filo");
   let id_distractivo = await getCategoryIdByCode("distractivo");
 
-  if (!id_user) {
-    console.warn("No se puede obtener el id_user.");
-    return [];
-  }
-  if (!id_doble_filo) {
-    console.error("No se puede obtener el ID de categoría 'Doble Filo'.");
-    return [];
-  }
-  if (!id_distractivo) {
-    console.error("No se puede obtener el ID de categoría 'Distractivo'.");
+  if (!id_user || !id_doble_filo || !id_distractivo) {
+    const msg = "Faltan IDs críticos (user o categorías).";
+    console.error(msg);
+    if (shouldThrow) throw new Error(msg);
     return [];
   }
 
@@ -828,6 +832,7 @@ async function getWebsDobleFiloAndDistractive() {
 
   } catch (e) {
     console.error(e.message);
+    if (shouldThrow) throw e;
     return [];
   }
 }
@@ -869,17 +874,19 @@ async function getRestTimeUsed(userId) {
   }
 
 }
-async function updateTimeSpent() {
+async function updateTimeSpentAntiguo() {
   try {
     let { accumulated_leisure_time } = await chrome.storage.local.get("accumulated_leisure_time");
     if (!accumulated_leisure_time) return;
-    const accumulated_minutes = Math.floor(accumulated_leisure_time / 60);
+    const time_spent_local = Math.floor(accumulated_leisure_time / 60);
 
     const id_user = await getUserLogged();
-    const total_time = await getRestTimeUsed(id_user);
-
+    const time_spent_db = await getRestTimeUsed(id_user);
+    let new_time_spent = 0;
     // Seguro para cuando se desinstala la extensión o similares
-    let new_time_spent = total_time + Math.abs(accumulated_minutes - total_time);
+    if (time_spent_local >= time_spent_db)
+      new_time_spent = time_spent_db + Math.abs(time_spent_local - time_spent_db);
+
 
     const timeUpdated = { tiempo_usado: new_time_spent };
 
@@ -894,6 +901,37 @@ async function updateTimeSpent() {
   } catch (e) {
     console.error("Error al subir la data del storage al backend", e.message);
     throw e;
+  }
+}
+async function updateTimeSpent() {
+  try {
+    let { accumulated_leisure_time, last_synced_time = 0 } = await chrome.storage.local.get(["accumulated_leisure_time", "last_synced_time"]);
+    if (!accumulated_leisure_time) return;
+
+    const time_spent_local = Math.floor(accumulated_leisure_time / 60);
+    if (time_spent_local < last_synced_time) last_synced_time = 0;
+
+    const minutes_to_add = time_spent_local - last_synced_time;
+    if (minutes_to_add <= 0) return;
+
+    const id_user = await getUserLogged();
+    const time_spent_db = await getRestTimeUsed(id_user);
+    const new_total = time_spent_db + minutes_to_add;
+
+    const timeUpdated = { tiempo_usado: new_total };
+
+    let response = await fetch(`http://127.0.0.1:8000/api/v1/rest-time/${id_user}`, {
+      method: "PUT",
+      body: JSON.stringify(timeUpdated),
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (!response.ok) throw new Error(`Error al actualizar el tiempo usado en el BACKEND: ${response.status}`);
+
+    await chrome.storage.local.set({ "last_synced_time": time_spent_local });
+
+  } catch (e) {
+    console.error("Error al subir la data del storage al backend", e.message);
   }
 }
 
@@ -963,8 +1001,10 @@ async function initializeStorage() {
 
     let { accumulated_leisure_time = 0 } = await chrome.storage.local.get("accumulated_leisure_time");
     const time_spent_local = accumulated_leisure_time;
+    console.log("tiempo usado en el local: ", time_spent_local);
     const time_spent_db_min = await getRestTimeUsed(user_id);
     const time_spent_db = time_spent_db_min * 60;
+    console.log("tiempo usado en la BD: ", time_spent_db);
 
     const accumulated_time = time_spent_local >= time_spent_db ? time_spent_local : time_spent_db;
 
