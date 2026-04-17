@@ -1,10 +1,15 @@
 function initFocusIntervention(seconds = 50) {
+
+    // CONTENEDOR
     const host = document.createElement('div');
     host.id = 'focus-guard-container';
     document.body.appendChild(host);
 
-    const shadow = host.attachShadow({ mode: 'closed' });
+    // Deniega el acceso a los nodos desde fuera => element.shadowRoot; // Returns null
+    // Impide que el estilo del sitio web original (ej. YouTube) afecte al temporizador, y viceversa.
+    const shadow = host.attachShadow({mode: 'closed'});
 
+    // ESTILOS
     const style = document.createElement('style');
     style.textContent = `
         :host {
@@ -59,12 +64,14 @@ function initFocusIntervention(seconds = 50) {
 
         .timer-container {
             position: relative;
-            width: 120px; height: 120px;
+            width: 120px; 
+            height: 120px;
             margin: 20px auto;
         }
 
         .circular-progress {
-            width: 120px; height: 120px;
+            width: 120px;
+            height: 120px;
             transform: rotate(-90deg);
         }
 
@@ -81,7 +88,8 @@ function initFocusIntervention(seconds = 50) {
 
         .timer-display {
             position: absolute;
-            top: 50%; left: 50%;
+            top: 50%; 
+            left: 50%;
             transform: translate(-50%, -50%);
         }
 
@@ -120,6 +128,7 @@ function initFocusIntervention(seconds = 50) {
         .hint { font-size: 11px; color: #475569; margin-top: 20px; }
     `;
 
+    // CARD TEMPORIZADOR
     const container = document.createElement('div');
     container.className = 'card';
     container.innerHTML = `
@@ -148,11 +157,13 @@ function initFocusIntervention(seconds = 50) {
     const btn = container.querySelector('#int-btn');
     const progressFill = container.querySelector('.progress-fill');
     let remaining = seconds;
-    const circumference = 345; 
+    const circumference = 345; // Basado en 2 * π * r (donde r=55)
 
+    // Bloqueo de Interacción: el usuario ya no puede bajar ni subir en la página.
     const bodyStyle = document.body.style.cssText;
     document.body.style.cssText += 'overflow: hidden !important;';
 
+    // Temporizador Circular
     const updateProgress = () => {
         const progress = ((seconds - remaining) / seconds) * circumference;
         progressFill.style.strokeDashoffset = circumference - progress;
@@ -167,15 +178,10 @@ function initFocusIntervention(seconds = 50) {
             clearInterval(countdown);
             btn.classList.add('active');
             btn.innerText = 'Continuar';
-            btn.onclick = () => {
-                document.body.style.cssText = bodyStyle;
-                host.remove();
-                observer.disconnect();
-            };
         }
     }, 1000);
 
-    // Defensa contra borrado
+    // Sistema Anti-Borrado: Evita que un usuario con conocimientos técnicos borre el temporizador
     const observer = new MutationObserver(() => {
         if (!document.body.contains(host)) {
             initFocusIntervention(remaining > 0 ? remaining : 5);
@@ -184,12 +190,14 @@ function initFocusIntervention(seconds = 50) {
     observer.observe(document.body, { childList: true });
 
     // Bloquear interacción con el resto de la página
-    const preventAction = (e) => {
-        if (!e.composedPath().includes(host)) {
-            e.preventDefault();
-            e.stopPropagation();
+    const preventAction = (event) => {
+        // composedPath() devuelve un arreglo con todos los nodos por los que pasó el evento [host, body, html, document, window].
+        if (!event.composedPath().includes(host)) {
+            event.preventDefault(); // Cancela el evento
+            event.stopPropagation(); // Evita que otros listeners en elementos superiores detecten el evento.
         }
     };
+    // Atrapa el clic o la tecla antes de que lleguen a la página web.
     document.addEventListener('click', preventAction, true);
     document.addEventListener('keydown', preventAction, true);
 
@@ -199,16 +207,14 @@ function initFocusIntervention(seconds = 50) {
         document.removeEventListener('keydown', preventAction, true);
     };
     
-    // Sobreescribimos el onclick para incluir la limpieza
-    const originalClick = btn.onclick;
-    btn.onclick = (e) => {
+    btn.onclick = () => {
+        if (remaining > 0) return;
+
         cleanup();
-        if(remaining <= 0) {
-            document.body.style.cssText = bodyStyle;
-            host.remove();
-            observer.disconnect();
-        }
+        document.body.style.cssText = bodyStyle;
+        host.remove();
+        observer.disconnect();
     };
 }
 
-//initFocusIntervention(50);
+initFocusIntervention(50);
