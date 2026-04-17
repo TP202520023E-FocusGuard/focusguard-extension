@@ -538,7 +538,7 @@ async function setWebComplete(tabId, hostname) {
 
   try {
 
-    // REGISTRAMOS EL WEBSITE EN LA BD
+    // 1. REGISTRAMOS EL WEBSITE
 
     let response1 = await fetch(`http://127.0.0.1:8000/api/v1/websites`, {
       method: "POST",
@@ -562,7 +562,7 @@ async function setWebComplete(tabId, hostname) {
       origen: DEFAULT_ORIGIN
     };
 
-    // REGISTRAMOS EL WEBSITE POR USUARIO EN LA BD
+    // 2. REGISTRAMOS EL WEBSITE POR USUARIO
 
     let response2 = await fetch(`http://127.0.0.1:8000/api/v1/website-users`, {
       method: "POST",
@@ -575,14 +575,16 @@ async function setWebComplete(tabId, hostname) {
 
     let data2 = await response2.json();
     let id_web_user = data2.id;
+    let id_cat_web_user = data2.id_categorias_web;
 
     let new_web_visited = {
       id_usuarios: id_user,
       id_sitios_web_usuario: id_web_user,
+      id_categorias_web: id_cat_web_user,
       fecha_hora_ingreso: new Date()
     };
 
-    // REGISTRAMOS LA FECHA DE ENTRADA AL WEBSITE EN LA BD
+    // 3. REGISTRAMOS LA VISITA AL WEBSITE
 
     let response3 = await fetch(`http://127.0.0.1:8000/api/v1/website-visited`, {
       method: "POST",
