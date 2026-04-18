@@ -1,15 +1,36 @@
+// Las variables definidas de forma global toman el mando y limpian los datos gurdados del mismo script anterior
+let focusGuardObserverOne = null;
+let preventActionOne = null;
+let countdown = null;
+
 function initFocusIntervention(seconds = 50) {
 
-    // CONTENEDOR
+    // 1. SANEAMIENTO PREVIO (Idempotencia)
+    if (focusGuardObserverOne) {
+        focusGuardObserverOne.disconnect();
+        focusGuardObserverOne = null;
+    }
+
+    if (preventActionOne) {
+        document.removeEventListener('click', preventActionOne, true);
+        document.removeEventListener('keydown', preventActionOne, true);
+    }
+
+    if (countdown) clearInterval(countdown);
+
+    const existing = document.getElementById('focus-guard-container');
+    if (existing) existing.remove();
+
+
+    // 2. CONSTRUCCIÓN DE LA INTERVENCIÓN
     const host = document.createElement('div');
     host.id = 'focus-guard-container';
     document.body.appendChild(host);
 
-    // Deniega el acceso a los nodos desde fuera => element.shadowRoot; // Returns null
+    // Deniega el acceso a los nodos desde fuera
     // Impide que el estilo del sitio web original (ej. YouTube) afecte al temporizador, y viceversa.
     const shadow = host.attachShadow({mode: 'closed'});
 
-    // ESTILOS
     const style = document.createElement('style');
     style.textContent = `
         :host {
@@ -128,7 +149,6 @@ function initFocusIntervention(seconds = 50) {
         .hint { font-size: 11px; color: #475569; margin-top: 20px; }
     `;
 
-    // CARD TEMPORIZADOR
     const container = document.createElement('div');
     container.className = 'card';
     container.innerHTML = `
@@ -169,7 +189,7 @@ function initFocusIntervention(seconds = 50) {
         progressFill.style.strokeDashoffset = circumference - progress;
     };
 
-    const countdown = setInterval(() => {
+    countdown = setInterval(() => {
         remaining--;
         timerText.innerText = remaining;
         updateProgress();
@@ -181,16 +201,10 @@ function initFocusIntervention(seconds = 50) {
         }
     }, 1000);
 
-    // Sistema Anti-Borrado: Evita que un usuario con conocimientos técnicos borre el temporizador
-    const observer = new MutationObserver(() => {
-        if (!document.body.contains(host)) {
-            initFocusIntervention(remaining > 0 ? remaining : 5);
-        }
-    });
-    observer.observe(document.body, { childList: true });
 
+    // 3. GESTIÓN DE EVENTOS
     // Bloquear interacción con el resto de la página
-    const preventAction = (event) => {
+    preventActionOne = (event) => {
         // composedPath() devuelve un arreglo con todos los nodos por los que pasó el evento [host, body, html, document, window].
         if (!event.composedPath().includes(host)) {
             event.preventDefault(); // Cancela el evento
@@ -198,23 +212,48 @@ function initFocusIntervention(seconds = 50) {
         }
     };
     // Atrapa el clic o la tecla antes de que lleguen a la página web.
-    document.addEventListener('click', preventAction, true);
-    document.addEventListener('keydown', preventAction, true);
+    document.addEventListener('click', preventActionOne, true);
+    document.addEventListener('keydown', preventActionOne, true);
 
+
+    // 4. LÓGICA DE CIERRE Y LIMPIEZA
     // Liberar eventos al cerrar
-    const cleanup = () => {
-        document.removeEventListener('click', preventAction, true);
-        document.removeEventListener('keydown', preventAction, true);
+    const cleanupListeners = () => {
+        document.removeEventListener('click', preventActionOne, true);
+        document.removeEventListener('keydown', preventActionOne, true);
     };
-    
-    btn.onclick = () => {
-        if (remaining > 0) return;
 
-        cleanup();
+    const closeIntervention = () => {
+        if (countdown) clearInterval(countdown);
+
+        if (focusGuardObserverOne) {
+            focusGuardObserverOne.disconnect();
+            focusGuardObserverOne = null;
+        }
+
+        cleanupListeners();
+        preventActionOne = null;
         document.body.style.cssText = bodyStyle;
         host.remove();
-        observer.disconnect();
+    };
+
+
+    // 5. SISTEMA ANTI-BORRADO
+    focusGuardObserverOne = new MutationObserver(() => {
+        if (!document.body.contains(host)) {
+            console.log("¡Intento de evasión detectado! Reiniciando intervención...");
+            cleanupListeners();
+            initFocusIntervention(remaining > 0 ? remaining : 5);
+        }
+    });
+    focusGuardObserverOne.observe(document.body, { childList: true });
+
+
+    // 6. ACCIONES DE USUARIO
+    btn.onclick = () => {
+        if (remaining > 0) return;
+        closeIntervention();
     };
 }
 
-initFocusIntervention(50);
+//initFocusIntervention(50);

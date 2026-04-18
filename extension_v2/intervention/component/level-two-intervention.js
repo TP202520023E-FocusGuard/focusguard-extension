@@ -1,8 +1,28 @@
-function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un breve descanso, pero sé que el progreso es la clave.") {
-    // 1. Limpieza preventiva (Evitar duplicados)
-    const existing = document.getElementById('focus-guard-lvl2');
-    if (existing) existing.remove();
+let focusGuardObserverTwo = null;
+let preventActionTwo = null;
 
+function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un breve descanso, pero sé que el progreso es la clave.") {
+
+    // 1. SANEAMIENTO PREVIO (Idempotencia)
+    if (focusGuardObserverTwo) {
+        //console.log("Eliminamos el Observer");
+        focusGuardObserverTwo.disconnect();
+        focusGuardObserverTwo = null;
+    }
+
+    if (preventActionTwo) {
+        //console.log("Eliminamos el preventActionTwo");
+        document.removeEventListener('click', preventActionTwo, true);
+        document.removeEventListener('keydown', preventActionTwo, true);
+    }
+
+    const existing = document.getElementById('focus-guard-lvl2');
+    if (existing) {
+        //console.log("Eliminamos el Host");
+        existing.remove();
+    }
+
+    // 2. CONSTRUCCIÓN DE LA INTERVENCIÓN
     const host = document.createElement('div');
     host.id = 'focus-guard-lvl2';
     document.body.appendChild(host);
@@ -136,17 +156,24 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
     const originalStyle = document.body.style.cssText;
     document.body.style.overflow = 'hidden';
 
-    const closeIntervention = () => {
-        if (observer) observer.disconnect();
-        document.body.style.cssText = originalStyle;
-        host.remove();
+    // 3. GESTIÓN DE EVENTOS
+    preventActionTwo = (event) => {
+        if (!event.composedPath().includes(host)) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
     };
+
+    // Listeners globales
+    document.addEventListener('click', preventActionTwo, true);
+    document.addEventListener('keydown', preventActionTwo, true);
 
     const handleKeyEvents = (e) => {
         e.stopPropagation();
         e.stopImmediatePropagation();
     };
 
+    // Listeners dentro de la intervención
     input.addEventListener('keydown', handleKeyEvents, true);
     input.addEventListener('keyup', handleKeyEvents, true);
 
@@ -173,6 +200,37 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
     input.onpaste = (e) => e.preventDefault();
     shadow.querySelector('.card').onclick = () => input.focus();
 
+    // 4. LÓGICA DE CIERRE Y LIMPIEZA
+    const cleanupListeners = () => {
+        console.log("Eliminamos los listeners");
+        document.removeEventListener('click', preventActionTwo, true);
+        document.removeEventListener('keydown', preventActionTwo, true);
+    };
+
+    const closeIntervention = () => {
+        console.log("Cerramos la intervención");
+        if (focusGuardObserverTwo) {
+            focusGuardObserverTwo.disconnect();
+            focusGuardObserverTwo = null;
+        }
+
+        cleanupListeners();
+        preventActionTwo = null;
+        document.body.style.cssText = originalStyle;
+        host.remove();
+    };
+
+    // 5. SISTEMA ANTI-BORRADO
+    focusGuardObserverTwo = new MutationObserver(() => {
+        if (!document.getElementById('focus-guard-lvl2')) {
+            console.log("¡Intento de evasión detectado! Reiniciando intervención...");
+            cleanupListeners();
+            initLevelTwoIntervention(targetText);
+        }
+    });
+    focusGuardObserverTwo.observe(document.body, { childList: true });
+
+    // 6. ACCIONES DE USUARIO
     unlockBtn.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -182,14 +240,6 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
     cancelBtn.onclick = () => {
         window.location.href = "https://www.google.com";
     };
-
-    const observer = new MutationObserver(() => {
-        if (!document.getElementById('focus-guard-lvl2')) {
-            // Pasamos el mismo targetText al recrear
-            initLevelTwoIntervention(targetText);
-        }
-    });
-    observer.observe(document.body, { childList: true });
     
     setTimeout(() => input.focus(), 500);   
 }
