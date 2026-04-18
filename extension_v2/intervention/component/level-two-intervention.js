@@ -245,4 +245,4 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
 }
 
 // Ahora puedes llamarla con cualquier texto desde tu backend
-initLevelTwoIntervention("Escribe esta frase personalizada para continuar.");
+//initLevelTwoIntervention("Escribe esta frase personalizada para continuar.");
