@@ -1,4 +1,6 @@
 const DEFAULT_ORIGIN = "default";
+const TIME_BETWEEN_INTERVENTIONS = 30; // minutes
+const TIME_OF_GRACE = 5; // minutes
 let timerContent = null;
 let focusTimeout = null;
 
@@ -305,10 +307,15 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
 
   // --- BLOQUE A: RASTREO DE DOMINIO (WEB) ---
   if(changeInfo.status === 'complete') {
+    const webs_distractive = await getWebsDistractive();
+    const is_distractive = webs_distractive.includes(hostname);
     let id_web_before = tabs_tracking[tabId.toString()];
 
     if (!id_web_before) { // Pestaña recién creada
       await setWebComplete(tabId, hostname);
+      if (is_distractive) {
+        // await shouldLaunchIntervention();
+      }
     } else if (focus_chrome) { // Estabas dentro de Chrome y ya existía esta pestaña
       if (last_domain !== hostname) {
         await updateWebDeparture(id_web_before, { fecha_hora_salida: new Date() });
@@ -325,6 +332,7 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
   // --- BLOQUE B: RASTREO DE CONTENIDO DE OCIO (DOBLE FILO) ---
   // Usamos changeInfo.title porque en sitios como YouTube, la URL no siempre cambia al navegar
   if (changeInfo.title) {
+
     // Cancelamos timer previo si el usuario cambió de contenido antes que termine el timer
     if (timerContent) {
       clearTimeout(timerContent);
@@ -440,7 +448,7 @@ async function handleActivated(activeInfo) {
         await chrome.storage.local.set({ "last_domain": domain, "focus_chrome": true });
 
       } catch (error) {
-        console.error("Error si esta es la primera pestaña en registrarse:", error.message);
+        console.error("Error si es que esta es la primera pestaña en registrarse:", error.message);
       }
 
       return;
@@ -679,7 +687,6 @@ async function setContentComplete(tabId, title, hostname) {
       id_categorias_contenido: id_default_category_content,
     };
 
-    //console.log("Enviando a content-users:", JSON.stringify(new_content_user, null, 2));
 
     // REGISTRAMOS EL CONTENIDO POR USUARIO
     let resContentUser = await fetch(`http://127.0.0.1:8000/api/v1/content-users`, {
@@ -761,7 +768,7 @@ async function getDefaultCategoryWeb() {
 }
 async function getDefaultCategoryContent() {
   try {
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/categories/content/codigo/incierto`, {
+    let response = await fetch(`http://127.0.0.1:8000/api/v1/categories/content/codigo/ocio`, {
       method: "GET",
       headers: {"Content-Type": "application/json"}
     });
@@ -793,7 +800,67 @@ async function getCategoryIdByCode(code) {
     return null;
   }
 }
-async function getWebsDobleFiloAndDistractive(shouldThrow = false) {
+async function getWebsDistractive(shouldThrow = false) {
+  let id_user = await getUserLogged();
+  let id_distractivo = await getCategoryIdByCode("distractivo");
+
+  if (!id_user || !id_distractivo) {
+    const msg = "Faltan IDs críticos (user o categoría distractiva).";
+    console.error(msg);
+    if (shouldThrow) throw new Error(msg);
+    return [];
+  }
+
+  try {
+    // OBTENEMOS LOS HOSTNAMES DE LOS SITIOS DISTRACTIVOS DEL USUARIO
+    let res_distractivo = await fetch(`http://127.0.0.1:8000/api/v1/website-users/users/${id_user}/categories/${id_distractivo}/domains`, {
+      method: "GET",
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (res_distractivo.status === 404) return [];
+    if (!res_distractivo.ok) throw new Error(`Error al obtener la lista de sitios Distractivos del usuario: ${res_distractivo.status}`);
+
+    const data_distractivo = await res_distractivo.json();
+    return Array.isArray(data_distractivo) ? data_distractivo : [];
+
+  } catch (e) {
+    console.error(e.message);
+    if (shouldThrow) throw e;
+    return [];
+  }
+}
+async function getWebsDobleFilo(shouldThrow = false) {
+  let id_user = await getUserLogged();
+  let id_doble_filo = await getCategoryIdByCode("doble-filo");
+
+  if (!id_user || !id_doble_filo) {
+    const msg = "Faltan IDs críticos (user o categoría doble filo).";
+    console.error(msg);
+    if (shouldThrow) throw new Error(msg);
+    return [];
+  }
+
+  try {
+    // OBTENEMOS LOS HOSTNAMES DE LOS SITIOS DOBLE FILO DEL USUARIO
+    let res_doblefilo = await fetch(`http://127.0.0.1:8000/api/v1/website-users/users/${id_user}/categories/${id_doble_filo}/domains`, {
+      method: "GET",
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (res_doblefilo.status === 404) return [];
+    if (!res_doblefilo.ok) throw new Error(`Error al obtener los sitios Doble Filo del usuario: ${res_doblefilo.status}`);
+
+    const data_doblefilo = await res_doblefilo.json();
+    return Array.isArray(data_doblefilo) ? data_doblefilo : [];
+
+  } catch (e) {
+    console.error(e.message);
+    if (shouldThrow) throw e;
+    return [];
+  }
+}
+async function getWebsDobleFiloAndDistractiveAntiguo(shouldThrow = false) {
   let id_user = await getUserLogged();
   let id_doble_filo = await getCategoryIdByCode("doble-filo");
   let id_distractivo = await getCategoryIdByCode("distractivo");
@@ -838,6 +905,20 @@ async function getWebsDobleFiloAndDistractive(shouldThrow = false) {
     return [];
   }
 }
+async function getWebsDobleFiloAndDistractive(shouldThrow = false) {
+
+  try {
+    let webs_doble_filo = await getWebsDobleFilo(shouldThrow);
+    let webs_distractivas = await getWebsDistractive(shouldThrow);
+
+    return webs_doble_filo.concat(webs_distractivas);
+  } catch (e) {
+    console.error(e.message);
+    if (shouldThrow) throw e;
+    return [];
+  }
+
+}
 
 async function getAssignedRestTime(userId) {
 
@@ -876,41 +957,12 @@ async function getRestTimeUsed(userId) {
   }
 
 }
-async function updateTimeSpentAntiguo() {
-  try {
-    let { accumulated_leisure_time } = await chrome.storage.local.get("accumulated_leisure_time");
-    if (!accumulated_leisure_time) return;
-    const time_spent_local = Math.floor(accumulated_leisure_time / 60);
-
-    const id_user = await getUserLogged();
-    const time_spent_db = await getRestTimeUsed(id_user);
-    let new_time_spent = 0;
-    // Seguro para cuando se desinstala la extensión o similares
-    if (time_spent_local >= time_spent_db)
-      new_time_spent = time_spent_db + Math.abs(time_spent_local - time_spent_db);
-
-
-    const timeUpdated = { tiempo_usado: new_time_spent };
-
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/rest-time/${id_user}`, {
-      method: "PUT",
-      body: JSON.stringify(timeUpdated),
-      headers: {"Content-Type": "application/json"}
-    });
-
-    if (!response.ok) throw new Error(`Error al actualizar el tiempo usado en el BACKEND: ${response.status}`);
-
-  } catch (e) {
-    console.error("Error al subir la data del storage al backend", e.message);
-    throw e;
-  }
-}
 async function updateTimeSpent() {
   try {
     let { accumulated_leisure_time, last_synced_time = 0 } = await chrome.storage.local.get(["accumulated_leisure_time", "last_synced_time"]);
     if (!accumulated_leisure_time) return;
 
-    const time_spent_local = Math.floor(accumulated_leisure_time / 60);
+    const time_spent_local = Math.floor(accumulated_leisure_time / 60); // convertimos a minutos
     if (time_spent_local < last_synced_time) last_synced_time = 0;
 
     const minutes_to_add = time_spent_local - last_synced_time;
@@ -945,6 +997,70 @@ async function uploadDataStorage() {
 
 
 // :::::: FUNCIONES OPERATIVAS ::::::
+async function isThereRestTimeLeft() {
+  let { assigned_rest_time = 0, accumulated_leisure_time = 0 } = await chrome.storage.local.get(["assigned_rest_time", "accumulated_leisure_time"]);
+
+  if (assigned_rest_time && accumulated_leisure_time) {
+    return (assigned_rest_time * 60) > accumulated_leisure_time;
+  }
+  else if (assigned_rest_time) return true;
+  else if (accumulated_leisure_time) return false;
+  else return true;
+}
+async function wasThereAnInterventionBefore() {
+  let { lastIntervention = null } = await chrome.storage.local.get("lastIntervention");
+  return lastIntervention;
+}
+function isTimeForANewIntervention(intervention) {
+  let launch_date = intervention["launch_date"] || null; // datetime
+  let now = new Date();
+
+  if (launch_date) {
+    let time_passed = now - launch_date;
+    return time_passed >= TIME_BETWEEN_INTERVENTIONS;
+  }
+
+  return true;
+}
+function wasLastInterventionUnlock(intervention) {
+  let unlock_date = intervention["unlock_date"] || null; // datetime
+  return !!unlock_date;
+}
+function has5MinutesPassed(intervention) {
+  let launch_date = intervention["launch_date"] || null; // datetime
+  let now = new Date();
+
+  return now - launch_date >= TIME_OF_GRACE;
+}
+function showPendingIntervention(intervention){
+
+}
+async function shouldLaunchIntervention() {
+  let isThereTimeLeft = await isThereRestTimeLeft();
+
+  if (!isThereTimeLeft) {
+
+    let intervention = await wasThereAnInterventionBefore();
+    if (intervention) {
+      let isTime = isTimeForANewIntervention(intervention);
+      if (isTime) {
+        // LOGICA DE MACHINE LEARNING
+      }
+      else {
+        let wasUnlock = wasLastInterventionUnlock(intervention);
+        if (!wasUnlock) {
+          let hasPassed = has5MinutesPassed(intervention);
+          if (!hasPassed) {
+            showPendingIntervention(intervention);
+          }
+        }
+      }
+    }
+    else {
+      // LOGICA DE MACHINE LEARNING
+    }
+  }
+}
 
 const isHttpUrl = (url) => {
   try {
@@ -1003,10 +1119,8 @@ async function initializeStorage() {
 
     let { accumulated_leisure_time = 0 } = await chrome.storage.local.get("accumulated_leisure_time");
     const time_spent_local = accumulated_leisure_time;
-    console.log("tiempo usado en el local: ", time_spent_local);
     const time_spent_db_min = await getRestTimeUsed(user_id);
     const time_spent_db = time_spent_db_min * 60;
-    console.log("tiempo usado en la BD: ", time_spent_db);
 
     const accumulated_time = time_spent_local >= time_spent_db ? time_spent_local : time_spent_db;
 
@@ -1015,9 +1129,10 @@ async function initializeStorage() {
     let updates = {"focus_chrome": true};
     updates.last_web_activated = active_tab ? active_tab.id : null;
     updates.last_domain = (active_tab?.url) ? new URL(active_tab.url).hostname : null;
-    updates.assigned_rest_time = await getAssignedRestTime(user_id) || 0;
+    updates.assigned_rest_time = await getAssignedRestTime(user_id) || 0; // minutos
     updates.interventions_allowed = ((accumulated_time ?? 0) >= (updates.assigned_rest_time * 60));
-    updates.accumulated_leisure_time = accumulated_time;
+    updates.accumulated_leisure_time = accumulated_time; // segundos
+    updates.last_synced_time = accumulated_time;
 
     await chrome.storage.local.set(updates);
     console.log("Inicialización del Storage: ", updates);
@@ -1052,7 +1167,7 @@ async function finishOcioSession() {
     const interventionsAllowed = assigned_rest_time && new_accumulated >= (assigned_rest_time * 60);
 
     await chrome.storage.local.set({
-      "accumulated_leisure_time": new_accumulated,
+      "accumulated_leisure_time": new_accumulated, // segundos
       "leisure_start": null,
       interventionsAllowed
     });
@@ -1097,7 +1212,7 @@ async function closeOldWebAndContent(tabs_tracking, content_tracking, oldTabId) 
 async function openNewWebAndContent(newTab, leisure_start) {
   // APERTURA de la nueva pestaña (si existe y es válida)
   if (newTab) {
-    const hostname = new URL(newTab.url).hostname;
+    const hostname = (newTab.url) ? new URL(newTab.url).hostname : null;
     let updates = {
       last_web_activated: newTab.id,
       last_domain: hostname

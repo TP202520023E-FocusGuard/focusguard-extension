@@ -116,7 +116,7 @@ async function loadScreen() {
     const catWebElement = document.getElementById("category-web");
     if (catWebElement) catWebElement.innerHTML = catWeb;
 
-    const resttime_left = assigned_rest_time * 60 - accumulated_leisure_time;
+    const resttime_left = Math.max(0, assigned_rest_time * 60 - accumulated_leisure_time);
     const timerElement = document.getElementById("display-timer");
     if (timerElement) timerElement.textContent = formatMinutes(resttime_left);
 
