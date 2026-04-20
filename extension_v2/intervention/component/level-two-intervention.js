@@ -1,7 +1,10 @@
 let focusGuardObserverTwo = null;
 let preventActionTwo = null;
+let originalStylesSnapshotLvl2 = null;
 
 function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un breve descanso, pero sé que el progreso es la clave.") {
+    const htmlElement = document.documentElement;
+    const bodyElement = document.body;
 
     // 1. SANEAMIENTO PREVIO (Idempotencia)
     if (focusGuardObserverTwo) {
@@ -14,15 +17,56 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
         preventActionTwo = null;
     }
 
+    if (originalStylesSnapshotLvl2) {
+        htmlElement.style.overflow = originalStylesSnapshotLvl2.html.overflow;
+        htmlElement.style.position = originalStylesSnapshotLvl2.html.position;
+        htmlElement.style.height = originalStylesSnapshotLvl2.html.height;
+
+        if (bodyElement) {
+            bodyElement.style.overflow = originalStylesSnapshotLvl2.body.overflow;
+            bodyElement.style.position = originalStylesSnapshotLvl2.body.position;
+            bodyElement.style.height = originalStylesSnapshotLvl2.body.height;
+        }
+        originalStylesSnapshotLvl2 = null;
+    }
+
     const existing = document.getElementById('focus-guard-lvl2');
     if (existing) existing.remove();
 
+
+    // 2. CAPTURA DE ESTADOS ORIGINALES
+    originalStylesSnapshotLvl2 = {
+        html: {
+            overflow: htmlElement.style.overflow,
+            position: htmlElement.style.position,
+            height: htmlElement.style.height
+        },
+        body: bodyElement ? {
+            overflow: bodyElement.style.overflow,
+            position: bodyElement.style.position,
+            height: bodyElement.style.height
+        } : null
+    };
+
+    htmlElement.style.setProperty('overflow', 'hidden', 'important');
+    htmlElement.style.setProperty('position', 'relative', 'important');
+    htmlElement.style.setProperty('height', '100%', 'important');
+
+    if (bodyElement) {
+        bodyElement.style.setProperty('overflow', 'hidden', 'important');
+        bodyElement.style.setProperty('position', 'relative', 'important');
+        bodyElement.style.setProperty('height', '100%', 'important');
+    }
+
     silenceTeasingMedia();
 
-    // 2. CONSTRUCCIÓN DE LA INTERVENCIÓN
+
+    // 3. CONSTRUCCIÓN DE LA INTERVENCIÓN
     const host = document.createElement('div');
     host.id = 'focus-guard-lvl2';
-    document.body.appendChild(host);
+
+    const mountPoint = document.body || document.documentElement;
+    mountPoint.appendChild(host);
 
     const shadow = host.attachShadow({ mode: 'closed' });
 
@@ -150,10 +194,8 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
     const progressInner = shadow.getElementById('progress');
     const cancelBtn = shadow.getElementById('cancel');
 
-    const originalStyle = document.body.style.cssText;
-    document.body.style.overflow = 'hidden';
 
-    // 3. GESTIÓN DE EVENTOS
+    // 4. GESTIÓN DE EVENTOS
     preventActionTwo = (event) => {
         if (!event.composedPath().includes(host)) {
             event.preventDefault();
@@ -200,7 +242,39 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
     input.onpaste = (e) => e.preventDefault();
     shadow.querySelector('.card').onclick = () => input.focus();
 
-    // 4. LÓGICA DE CIERRE Y LIMPIEZA
+
+    // 5. SISTEMA ANTI-BORRADO
+    focusGuardObserverTwo = new MutationObserver((mutations) => {
+        if (!document.documentElement.contains(host) || !host.isConnected) {
+            console.log("Evasión detectada en Lvl 2! Reiniciando...");
+            if(preventActionTwo) cleanupListeners();
+            initLevelTwoIntervention(targetText);
+            return;
+        }
+
+        for (const mutation of mutations) {
+            if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+                if (mutation.target === host) {
+                    host.style.cssText = `
+                        position: fixed !important;
+                        top: 0 !important; left: 0 !important;
+                        width: 100vw !important; height: 100vh !important;
+                        z-index: 2147483647 !important;
+                        display: flex !important;
+                    `;
+                }
+            }
+        }
+    });
+    focusGuardObserverTwo.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class']
+    });
+
+
+    // 6. CIERRE Y LIMPIEZA
     function cleanupListeners() {
         document.removeEventListener('click', preventActionTwo, true);
         document.removeEventListener('keydown', preventActionTwo, true);
@@ -217,24 +291,22 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
         if(preventActionTwo) cleanupListeners();
         preventActionTwo = null;
 
-        document.body.style.cssText = originalStyle;
+        if (originalStylesSnapshotLvl2) {
+            htmlElement.style.overflow = originalStylesSnapshotLvl2.html.overflow;
+            htmlElement.style.position = originalStylesSnapshotLvl2.html.position;
+            htmlElement.style.height = originalStylesSnapshotLvl2.html.height;
+            if (bodyElement && originalStylesSnapshotLvl2.body) {
+                bodyElement.style.overflow = originalStylesSnapshotLvl2.body.overflow;
+                bodyElement.style.position = originalStylesSnapshotLvl2.body.position;
+                bodyElement.style.height = originalStylesSnapshotLvl2.body.height;
+            }
+        }
+        originalStylesSnapshotLvl2 = null;
 
         host.remove();
     };
 
-
-    // 5. SISTEMA ANTI-BORRADO
-    focusGuardObserverTwo = new MutationObserver(() => {
-        if (!document.getElementById('focus-guard-lvl2')) {
-            console.log("¡Intento de evasión detectado! Reiniciando intervención...");
-            if(preventActionTwo) cleanupListeners();
-            initLevelTwoIntervention(targetText);
-        }
-    });
-    focusGuardObserverTwo.observe(document.body, { childList: true });
-
-
-    // 6. ACCIONES DE USUARIO
+    // 7. ACCIONES DE USUARIO
     unlockBtn.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -248,7 +320,6 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
     setTimeout(() => input.focus(), 500);
 
 
-    // FUNCIONES DE AYUDA
     function silenceTeasingMedia() {
         const videos = document.querySelectorAll('video');
         videos.forEach(video => {
@@ -260,4 +331,4 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
 }
 
 // Ahora puedes llamarla con cualquier texto desde tu backend
-// initLevelTwoIntervention("Escribe esta frase personalizada para continuar.");
+initLevelTwoIntervention("Escribe esta frase personalizada para continuar.");
