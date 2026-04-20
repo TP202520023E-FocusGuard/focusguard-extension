@@ -5,22 +5,19 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
 
     // 1. SANEAMIENTO PREVIO (Idempotencia)
     if (focusGuardObserverTwo) {
-        //console.log("Eliminamos el Observer");
         focusGuardObserverTwo.disconnect();
         focusGuardObserverTwo = null;
     }
 
     if (preventActionTwo) {
-        //console.log("Eliminamos el preventActionTwo");
-        document.removeEventListener('click', preventActionTwo, true);
-        document.removeEventListener('keydown', preventActionTwo, true);
+        cleanupListeners();
+        preventActionTwo = null;
     }
 
     const existing = document.getElementById('focus-guard-lvl2');
-    if (existing) {
-        //console.log("Eliminamos el Host");
-        existing.remove();
-    }
+    if (existing) existing.remove();
+
+    silenceTeasingMedia();
 
     // 2. CONSTRUCCIÓN DE LA INTERVENCIÓN
     const host = document.createElement('div');
@@ -161,12 +158,15 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
         if (!event.composedPath().includes(host)) {
             event.preventDefault();
             event.stopPropagation();
+            event.stopImmediatePropagation();
         }
     };
 
     // Listeners globales
     document.addEventListener('click', preventActionTwo, true);
     document.addEventListener('keydown', preventActionTwo, true);
+    document.addEventListener('scroll', preventActionTwo, true);
+    window.addEventListener('scroll', preventActionTwo, true);
 
     const handleKeyEvents = (e) => {
         e.stopPropagation();
@@ -201,34 +201,38 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
     shadow.querySelector('.card').onclick = () => input.focus();
 
     // 4. LÓGICA DE CIERRE Y LIMPIEZA
-    const cleanupListeners = () => {
-        console.log("Eliminamos los listeners");
+    function cleanupListeners() {
         document.removeEventListener('click', preventActionTwo, true);
         document.removeEventListener('keydown', preventActionTwo, true);
-    };
+        document.removeEventListener('scroll', preventActionTwo, true);
+        window.removeEventListener('scroll', preventActionTwo, true);
+    }
 
     const closeIntervention = () => {
-        console.log("Cerramos la intervención");
         if (focusGuardObserverTwo) {
             focusGuardObserverTwo.disconnect();
             focusGuardObserverTwo = null;
         }
 
-        cleanupListeners();
+        if(preventActionTwo) cleanupListeners();
         preventActionTwo = null;
+
         document.body.style.cssText = originalStyle;
+
         host.remove();
     };
+
 
     // 5. SISTEMA ANTI-BORRADO
     focusGuardObserverTwo = new MutationObserver(() => {
         if (!document.getElementById('focus-guard-lvl2')) {
             console.log("¡Intento de evasión detectado! Reiniciando intervención...");
-            cleanupListeners();
+            if(preventActionTwo) cleanupListeners();
             initLevelTwoIntervention(targetText);
         }
     });
     focusGuardObserverTwo.observe(document.body, { childList: true });
+
 
     // 6. ACCIONES DE USUARIO
     unlockBtn.onclick = (e) => {
@@ -241,8 +245,19 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
         window.location.href = "https://www.google.com";
     };
     
-    setTimeout(() => input.focus(), 500);   
+    setTimeout(() => input.focus(), 500);
+
+
+    // FUNCIONES DE AYUDA
+    function silenceTeasingMedia() {
+        const videos = document.querySelectorAll('video');
+        videos.forEach(video => {
+            video.pause();
+            video.muted = true;
+            video.currentTime = 0;
+        });
+    }
 }
 
 // Ahora puedes llamarla con cualquier texto desde tu backend
-//initLevelTwoIntervention("Escribe esta frase personalizada para continuar.");
+// initLevelTwoIntervention("Escribe esta frase personalizada para continuar.");

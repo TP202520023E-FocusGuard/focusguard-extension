@@ -12,15 +12,19 @@ function initFocusIntervention(seconds = 50) {
     }
 
     if (preventActionOne) {
-        document.removeEventListener('click', preventActionOne, true);
-        document.removeEventListener('keydown', preventActionOne, true);
+        cleanupListeners();
+        preventActionOne = null;
     }
 
-    if (countdown) clearInterval(countdown);
+    if (countdown) {
+        clearInterval(countdown);
+        countdown = null;
+    }
 
     const existing = document.getElementById('focus-guard-container');
     if (existing) existing.remove();
 
+    silenceTeasingMedia();
 
     // 2. CONSTRUCCIÓN DE LA INTERVENCIÓN
     const host = document.createElement('div');
@@ -209,19 +213,23 @@ function initFocusIntervention(seconds = 50) {
         if (!event.composedPath().includes(host)) {
             event.preventDefault(); // Cancela el evento
             event.stopPropagation(); // Evita que otros listeners en elementos superiores detecten el evento.
+            event.stopImmediatePropagation();
         }
     };
     // Atrapa el clic o la tecla antes de que lleguen a la página web.
     document.addEventListener('click', preventActionOne, true);
     document.addEventListener('keydown', preventActionOne, true);
-
+    document.addEventListener('scroll', preventActionOne, true);
+    window.addEventListener('scroll', preventActionOne, true);
 
     // 4. LÓGICA DE CIERRE Y LIMPIEZA
     // Liberar eventos al cerrar
-    const cleanupListeners = () => {
+    function cleanupListeners() {
         document.removeEventListener('click', preventActionOne, true);
         document.removeEventListener('keydown', preventActionOne, true);
-    };
+        document.removeEventListener('scroll', preventActionOne, true);
+        window.removeEventListener('scroll', preventActionOne, true);
+    }
 
     const closeIntervention = () => {
         if (countdown) clearInterval(countdown);
@@ -231,9 +239,11 @@ function initFocusIntervention(seconds = 50) {
             focusGuardObserverOne = null;
         }
 
-        cleanupListeners();
+        if (preventActionOne) cleanupListeners();
         preventActionOne = null;
+
         document.body.style.cssText = bodyStyle;
+
         host.remove();
     };
 
@@ -242,7 +252,7 @@ function initFocusIntervention(seconds = 50) {
     focusGuardObserverOne = new MutationObserver(() => {
         if (!document.body.contains(host)) {
             console.log("¡Intento de evasión detectado! Reiniciando intervención...");
-            cleanupListeners();
+            if (preventActionOne) cleanupListeners();
             initFocusIntervention(remaining > 0 ? remaining : 5);
         }
     });
@@ -254,6 +264,17 @@ function initFocusIntervention(seconds = 50) {
         if (remaining > 0) return;
         closeIntervention();
     };
+
+
+    // FUNCIONES DE AYUDA
+    function silenceTeasingMedia() {
+        const videos = document.querySelectorAll('video');
+        videos.forEach(video => {
+            video.pause();
+            video.muted = true;
+            video.currentTime = 0;
+        });
+    }
 }
 
-//initFocusIntervention(50);
+initFocusIntervention(50);

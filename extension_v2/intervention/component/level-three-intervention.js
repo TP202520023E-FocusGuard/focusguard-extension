@@ -12,13 +12,14 @@ function initLevelThreeIntervention(durationSeconds = 60) {
     }
 
     if (preventActionThree) {
-        document.removeEventListener('click', preventActionThree, true);
-        document.removeEventListener('keydown', preventActionThree, true);
-        document.removeEventListener('scroll', preventActionThree, true);
-        window.removeEventListener('scroll', preventActionThree, true);
+        cleanupListeners();
+        preventActionThree = null;
     }
 
-    if (countdownThree) clearInterval(countdownThree);
+    if (countdownThree) {
+        clearInterval(countdownThree);
+        countdownThree = null;
+    }
 
     const globalStyleElem = document.getElementById('focus-guard-global-style');
     if (globalStyleElem) globalStyleElem.remove();
@@ -43,6 +44,7 @@ function initLevelThreeIntervention(durationSeconds = 60) {
 
         originalStylesSnapshot = null;
     }
+
 
     // 2. CALCULAR EL TIEMPO
     const STORAGE_KEY = "focus_block_until";
@@ -240,7 +242,6 @@ function initLevelThreeIntervention(durationSeconds = 60) {
         remaining = Math.ceil((blockedUntil - now) / 1000);
         
         if (remaining <= 0) {
-            if (countdownThree) clearInterval(countdownThree);
             localStorage.removeItem(STORAGE_KEY);
             closeIntervention();
             return;
@@ -270,6 +271,7 @@ function initLevelThreeIntervention(durationSeconds = 60) {
     focusGuardObserverThree = new MutationObserver((mutations) => {
         if (!document.documentElement.contains(host) || !host.isConnected) {
             console.log("Intento de evasión detectado (Nivel 3)");
+            if (preventActionThree) cleanupListeners();
             initLevelThreeIntervention(remaining);
             return;
         }
@@ -305,16 +307,25 @@ function initLevelThreeIntervention(durationSeconds = 60) {
 
 
     // 7. LÓGICA DE CIERRE Y LIMPIEZA
+    function cleanupListeners() {
+        document.removeEventListener('click', preventActionThree, true);
+        document.removeEventListener('keydown', preventActionThree, true);
+        document.removeEventListener('scroll', preventActionThree, true);
+        window.removeEventListener('scroll', preventActionThree, true);
+    }
+
     function closeIntervention() {
+        if (countdownThree) {
+            clearInterval(countdownThree);
+            countdownThree = null;
+        }
+
         if (focusGuardObserverThree) {
             focusGuardObserverThree.disconnect();
             focusGuardObserverThree = null;
         }
 
-        document.removeEventListener('click', preventActionThree, true);
-        document.removeEventListener('keydown', preventActionThree, true);
-        document.removeEventListener('scroll', preventActionThree, true);
-        window.removeEventListener('scroll', preventActionThree, true);
+        if (preventActionThree) cleanupListeners();
 
         preventActionThree = null;
 
@@ -335,6 +346,7 @@ function initLevelThreeIntervention(durationSeconds = 60) {
 
         host.remove();
     }
+
 
     // FUNCIONES DE AYUDA
     function formatTime(sec) {
