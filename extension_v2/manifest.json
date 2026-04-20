@@ -3,6 +3,7 @@
   "name": "FocusGuard",
   "description": "Track the time spended in web procrastination",
   "version": "1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0YR7fmoKXqTuRP3JfmkBX3q5nsMoqGpWmjfJc/WI9wIIdGiFktOHpAjk3dKDWzF2H91iAHRpf0jxGsFy+b3xMJjbGa+viyQSM5hV0YhYzd+SL+ocwegRoadANJeiaGtv0Xzm/02pqt6sEAB8MVerB20ZcQFpDtQQTKeC42XH4WEOY8Gjyrqas2t+Cabdv+3bLRmX+qTZL3DkHZfrYlAFEMe6tNQQKQ81GVY46nBkq1R8mNn2zR6LAoF+EWgtbZHvPAUXEBm7cv1JnDFyoXHjN7foRS989GPf4TGJVl6cqm0kNu/z1g/wTHNlCdewVCmgsx5a7NRlnQi+ir+ckQEGuwIDAQAB",
   "icons": {
     "16": "images/timer-blue-16.png",
     "32": "images/timer-blue-32.png",
@@ -22,15 +23,26 @@
     },
     "default_popup": "popup.html"
   },
-  "permissions": ["scripting", "activeTab", "tabs", "storage"],
+  "externally_connectable": {
+    "matches": [
+      "http://localhost:5173/*"
+    ]
+  },
+  "permissions": [
+    "scripting",
+    "activeTab",
+    "tabs",
+    "storage",
+    "alarms",
+    "idle"
+  ],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
       "js": ["intervention/component/level-one-intervention.js",
-             "intervention/component/level-two-intervention.js",
-             "intervention/component/level-three-intervention.js"],
+        "intervention/component/level-two-intervention.js",
+        "intervention/component/level-three-intervention.js"],
       "run_at": "document_idle"
     }
   ]
-
 }

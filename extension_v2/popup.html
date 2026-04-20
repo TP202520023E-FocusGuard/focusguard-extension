@@ -7,37 +7,82 @@
       <link rel="stylesheet" href="popup.css">
    </head>
    <body>
-      <div class="popup-info">
-         <div class="popup-section website-visited">
-            <h3>*Aquí va el dominio*</h3>
-            <h3 id="domain"></h3>
-            <p>Este es el sitio web que estas visitando en este momento</p>
+      <div id="register-screen">
+         <form id="registration-form">
+
+            <label for="r-fname">Nombres:</label><br>
+            <input type="text" id="r-fname" name="r-fname"><br>
+
+            <label for="r-lname">Apellidos:</label><br>
+            <input type="text" id="r-lname" name="r-lname"><br>
+
+            <label for="r-phone">Teléfono:</label><br>
+            <input type="text" id="r-phone" name="r-phone"><br>
+
+            <label for="r-email">Correo:</label><br>
+            <input type="email" id="r-email" name="r-email"><br>
+
+            <label for="r-pwd">Contraseña:</label><br>
+            <input type="password" id="r-pwd" name="r-pwd"><br>
+
+            <label for="r-pwd2">Confirmar Contraseña:</label><br>
+            <input type="password" id="r-pwd2" name="r-pwd2"><br>
+
+            <label for="r-phrase">Frase de seguridad:</label><br>
+            <input type="text" id="r-phrase" name="r-phrase"><br>
+
+            <input type="submit" value="Registrar">
+         </form>
+         <p id="btn-go-to-auth">Iniciar sesión</p>
+      </div>
+
+      <div id="auth-screen">
+         <form id="auth-form">
+            <label for="a-email">Correo:</label><br>
+            <input type="email" id="a-email" name="a-email"><br>
+
+            <label for="a-pwd">Contraseña:</label><br>
+            <input type="password" id="a-pwd" name="a-pwd"><br>
+
+            <input type="submit" value="Iniciar sesión">
+         </form>
+         <p id="btn-go-to-register">Registrar usuario</p>
+      </div>
+
+      <div id="dashboard-screen">
+         <div class="popup-info">
+            <div class="popup-section website-visited">
+               <h3>Dominio</h3>
+               <h3 id="domain"></h3>
+               <p>Este es el sitio web que estas visitando en este momento</p>
+            </div>
+
+            <div class="popup-section website-category">
+               <h3>Categoría del sitio</h3>
+               <h3 id="category-web"></h3>
+            </div>
+
+            <div class="popup-section content-category">
+               <h3>Clasificación Ocio</h3>
+               <p>*Aquí va la clasificación del contenido*</p>
+            </div>
+
+            <div class="popup-section free-time">
+               <h3>Descanso restante</h3>
+               <time id="display-timer" class="timer-digits">00:00:00</time>
+            </div>
+
+            <div class="popup-section">
+               <button class="btn-change-content-category">Marcar como no ocio</button>
+               <p>Usa este botón si la evaluación automática no se ajusta a tu realidad.</p>
+            </div>
+
+            <br>
+
+            <a>Abrir panel de control</a>
+            <p>Cultiva hábitos conscientes: pequeños ajustes constantes construyen grandes logros.</p>
          </div>
-
-         <div class="popup-section website-category">
-            <h3>Categoría</h3>
-            <p>*Aquí va la categoría*</p>
-         </div>
-
-         <div class="popup-section content-category">
-            <h3>Clasificación Ocio</h3>
-            <p>*Aquí va la clasificación del contenido*</p>
-         </div>
-
-         <div class="popup-section free-time">
-            <h3>Descanso restante </h3>
-            <p>*Aquí va el descanso*</p>
-         </div>
-
-         <div class="popup-section">
-            <button class="btn-change-content-category">Marcar como no ocio</button>
-            <p>Usa este botón si la evaluación automática no se ajusta a tu realidad.</p>
-         </div>
-
-         <br>
-
-         <a>Abrir panel de control</a>
-         <p>Cultiva hábitos conscientes: pequeños ajustes constantes construyen grandes logros.</p>
+         <p id="btn-logout">Cerrar sesión</p>
       </div>
 
       <script type="module" src="popup.js"></script>
