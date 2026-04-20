@@ -1,9 +1,12 @@
 // Las variables definidas de forma global toman el mando y limpian los datos gurdados del mismo script anterior
 let focusGuardObserverOne = null;
 let preventActionOne = null;
-let countdown = null;
+let countdownOne = null;
+let originalStylesSnapshotOne = null;
 
 function initFocusIntervention(seconds = 50) {
+    const htmlElement = document.documentElement;
+    const bodyElement = document.body;
 
     // 1. SANEAMIENTO PREVIO (Idempotencia)
     if (focusGuardObserverOne) {
@@ -16,20 +19,63 @@ function initFocusIntervention(seconds = 50) {
         preventActionOne = null;
     }
 
-    if (countdown) {
-        clearInterval(countdown);
-        countdown = null;
+    if (countdownOne) {
+        clearInterval(countdownOne);
+        countdownOne = null;
+    }
+
+    if (originalStylesSnapshotOne) {
+        htmlElement.style.overflow = originalStylesSnapshotOne.html.overflow;
+        htmlElement.style.position = originalStylesSnapshotOne.html.position;
+        htmlElement.style.height = originalStylesSnapshotOne.html.height;
+
+        if (bodyElement) {
+            bodyElement.style.overflow = originalStylesSnapshotOne.body.overflow;
+            bodyElement.style.position = originalStylesSnapshotOne.body.position;
+            bodyElement.style.height = originalStylesSnapshotOne.body.height;
+        }
+        originalStylesSnapshotOne = null;
     }
 
     const existing = document.getElementById('focus-guard-container');
     if (existing) existing.remove();
 
+
+    // 2. CAPTURA DE ESTADOS ORIGINALES
+    originalStylesSnapshot = {
+        html: {
+            overflow: htmlElement.style.overflow,
+            position: htmlElement.style.position,
+            height: htmlElement.style.height
+        },
+        body: bodyElement ? {
+            overflow: bodyElement.style.overflow,
+            position: bodyElement.style.position,
+            height: bodyElement.style.height
+        } : null
+    };
+
+    // Aplicar bloqueo de scroll y posición (Crítico para YouTube)
+    htmlElement.style.setProperty('overflow', 'hidden', 'important');
+    htmlElement.style.setProperty('position', 'relative', 'important');
+    htmlElement.style.setProperty('height', '100%', 'important');
+
+    if (bodyElement) {
+        bodyElement.style.setProperty('overflow', 'hidden', 'important');
+        bodyElement.style.setProperty('position', 'relative', 'important');
+        bodyElement.style.setProperty('height', '100%', 'important');
+    }
+
     silenceTeasingMedia();
 
-    // 2. CONSTRUCCIÓN DE LA INTERVENCIÓN
+
+    // 3. CONSTRUCCIÓN DE LA INTERVENCIÓN
     const host = document.createElement('div');
     host.id = 'focus-guard-container';
-    document.body.appendChild(host);
+
+    // Priorizamos el montaje en el body, si no existe, al root
+    const mountPoint = document.body || document.documentElement;
+    mountPoint.appendChild(host);
 
     // Deniega el acceso a los nodos desde fuera
     // Impide que el estilo del sitio web original (ej. YouTube) afecte al temporizador, y viceversa.
@@ -177,36 +223,39 @@ function initFocusIntervention(seconds = 50) {
     shadow.appendChild(style);
     shadow.appendChild(container);
 
+    host.getBoundingClientRect(); // Forzar reflow sincrónico
+
+
+    // 4. LÓGICA DE LA INTERVENCIÓN
     const timerText = container.querySelector('#int-timer');
     const btn = container.querySelector('#int-btn');
     const progressFill = container.querySelector('.progress-fill');
     let remaining = seconds;
     const circumference = 345; // Basado en 2 * π * r (donde r=55)
 
-    // Bloqueo de Interacción: el usuario ya no puede bajar ni subir en la página.
-    const bodyStyle = document.body.style.cssText;
-    document.body.style.cssText += 'overflow: hidden !important;';
-
-    // Temporizador Circular
     const updateProgress = () => {
         const progress = ((seconds - remaining) / seconds) * circumference;
-        progressFill.style.strokeDashoffset = circumference - progress;
+        progressFill.style.strokeDashoffset = Math.max(0, circumference - progress);
     };
 
-    countdown = setInterval(() => {
+    countdownOne = setInterval(() => {
         remaining--;
         timerText.innerText = remaining;
         updateProgress();
 
         if (remaining <= 0) {
-            clearInterval(countdown);
+            clearInterval(countdownOne);
             btn.classList.add('active');
             btn.innerText = 'Continuar';
         }
+
+        // Render hack
+        timerText.style.transform = 'scale(1.001)';
+        requestAnimationFrame(() => timerText.style.transform = 'scale(1)');
     }, 1000);
 
 
-    // 3. GESTIÓN DE EVENTOS
+    // 5. GESTIÓN DE EVENTOS
     // Bloquear interacción con el resto de la página
     preventActionOne = (event) => {
         // composedPath() devuelve un arreglo con todos los nodos por los que pasó el evento [host, body, html, document, window].
@@ -216,13 +265,50 @@ function initFocusIntervention(seconds = 50) {
             event.stopImmediatePropagation();
         }
     };
+
     // Atrapa el clic o la tecla antes de que lleguen a la página web.
     document.addEventListener('click', preventActionOne, true);
     document.addEventListener('keydown', preventActionOne, true);
     document.addEventListener('scroll', preventActionOne, true);
     window.addEventListener('scroll', preventActionOne, true);
 
-    // 4. LÓGICA DE CIERRE Y LIMPIEZA
+
+    // 6. SISTEMA ANTI-BORRADO
+    focusGuardObserverOne = new MutationObserver((mutations) => {
+        // Validación de existencia física
+        if (!document.documentElement.contains(host) || !host.isConnected) {
+            console.log("¡Intento de evasión detectado! Reiniciando intervención...");
+            if (preventActionOne) cleanupListeners();
+            initFocusIntervention(remaining > 0 ? remaining : 5);
+            return;
+        }
+
+        // Validación de integridad de estilo (Anti-ocultamiento)
+        for (const mutation of mutations) {
+            if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+                if (mutation.target === host) {
+                    host.style.cssText = `
+                        position: fixed !important;
+                        top: 0 !important; left: 0 !important;
+                        width: 100vw !important; height: 100vh !important;
+                        z-index: 2147483647 !important;
+                        pointer-events: all !important;
+                        display: flex !important;
+                    `;
+                }
+            }
+        }
+    });
+
+    focusGuardObserverOne.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class']
+    });
+
+
+    // 7. CIERRE Y LIMPIEZA
     // Liberar eventos al cerrar
     function cleanupListeners() {
         document.removeEventListener('click', preventActionOne, true);
@@ -232,7 +318,10 @@ function initFocusIntervention(seconds = 50) {
     }
 
     const closeIntervention = () => {
-        if (countdown) clearInterval(countdown);
+        if (countdownOne) {
+            clearInterval(countdownOne);
+            countdownOne = null;
+        }
 
         if (focusGuardObserverOne) {
             focusGuardObserverOne.disconnect();
@@ -242,31 +331,26 @@ function initFocusIntervention(seconds = 50) {
         if (preventActionOne) cleanupListeners();
         preventActionOne = null;
 
-        document.body.style.cssText = bodyStyle;
+        // Restauración Snapshot
+        if (originalStylesSnapshot) {
+            htmlElement.style.overflow = originalStylesSnapshot.html.overflow;
+            htmlElement.style.position = originalStylesSnapshot.html.position;
+            htmlElement.style.height = originalStylesSnapshot.html.height;
+            if (bodyElement && originalStylesSnapshot.body) {
+                bodyElement.style.overflow = originalStylesSnapshot.body.overflow;
+                bodyElement.style.position = originalStylesSnapshot.body.position;
+                bodyElement.style.height = originalStylesSnapshot.body.height;
+            }
+        }
 
         host.remove();
     };
 
-
-    // 5. SISTEMA ANTI-BORRADO
-    focusGuardObserverOne = new MutationObserver(() => {
-        if (!document.body.contains(host)) {
-            console.log("¡Intento de evasión detectado! Reiniciando intervención...");
-            if (preventActionOne) cleanupListeners();
-            initFocusIntervention(remaining > 0 ? remaining : 5);
-        }
-    });
-    focusGuardObserverOne.observe(document.body, { childList: true });
-
-
-    // 6. ACCIONES DE USUARIO
     btn.onclick = () => {
         if (remaining > 0) return;
         closeIntervention();
     };
 
-
-    // FUNCIONES DE AYUDA
     function silenceTeasingMedia() {
         const videos = document.querySelectorAll('video');
         videos.forEach(video => {

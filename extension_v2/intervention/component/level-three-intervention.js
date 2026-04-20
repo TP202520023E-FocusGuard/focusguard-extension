@@ -4,6 +4,8 @@ let countdownThree = null;
 let originalStylesSnapshot = null;
 
 function initLevelThreeIntervention(durationSeconds = 60) {
+    const htmlElement = document.documentElement;
+    const bodyElement = document.body;
 
     // 1. SANEAMIENTO PREVIO (Idempotencia)
     if (focusGuardObserverThree) {
@@ -21,16 +23,6 @@ function initLevelThreeIntervention(durationSeconds = 60) {
         countdownThree = null;
     }
 
-    const globalStyleElem = document.getElementById('focus-guard-global-style');
-    if (globalStyleElem) globalStyleElem.remove();
-
-    const existing = document.getElementById('focus-guard-lvl3');
-    if (existing) existing.remove();
-
-    // Forzar estilos en HTML y body para YouTube
-    const htmlElement = document.documentElement;
-    const bodyElement = document.body;
-
     if (originalStylesSnapshot) {
         htmlElement.style.overflow = originalStylesSnapshot.html.overflow;
         htmlElement.style.position = originalStylesSnapshot.html.position;
@@ -44,6 +36,12 @@ function initLevelThreeIntervention(durationSeconds = 60) {
 
         originalStylesSnapshot = null;
     }
+
+    const globalStyleElem = document.getElementById('focus-guard-global-style');
+    if (globalStyleElem) globalStyleElem.remove();
+
+    const existing = document.getElementById('focus-guard-lvl3');
+    if (existing) existing.remove();
 
 
     // 2. CALCULAR EL TIEMPO
@@ -78,14 +76,15 @@ function initLevelThreeIntervention(durationSeconds = 60) {
         } : null
     };
 
-    htmlElement.style.overflow = 'hidden';
-    htmlElement.style.position = 'relative';
-    htmlElement.style.height = '100%';
+    // Aplicar bloqueo de scroll y posición (Crítico para YouTube)
+    htmlElement.style.setProperty('overflow', 'hidden', 'important');
+    htmlElement.style.setProperty('position', 'relative', 'important');
+    htmlElement.style.setProperty('height', '100%', 'important');
 
     if (bodyElement) {
-        bodyElement.style.overflow = 'hidden';
-        bodyElement.style.position = 'relative';
-        bodyElement.style.height = '100%';
+        bodyElement.style.setProperty('overflow', 'hidden', 'important');
+        bodyElement.style.setProperty('position', 'relative', 'important');
+        bodyElement.style.setProperty('height', '100%', 'important');
     }
 
     silenceTeasingMedia();
