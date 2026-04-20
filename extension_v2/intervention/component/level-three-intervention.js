@@ -1,27 +1,11 @@
 let focusGuardObserverThree = null;
 let preventActionThree = null;
 let countdownThree = null;
+let originalStylesSnapshot = null;
 
-function initLevelThreeIntervention(durationSeconds = 600) {
+function initLevelThreeIntervention(durationSeconds = 60) {
 
-    const STORAGE_KEY = "focus_block_until";
-    const now = Date.now();
-
-    // 1. Verificar si ya hay un bloqueo activo
-    let blockedUntil = parseInt(localStorage.getItem(STORAGE_KEY), 10);
-
-    if (!blockedUntil || blockedUntil < now) {
-        blockedUntil = now + durationSeconds * 1000;
-        localStorage.setItem(STORAGE_KEY, blockedUntil);
-    }
-
-    let remaining = Math.ceil((blockedUntil - now) / 1000);
-
-    if (remaining <= 0) {
-        localStorage.removeItem(STORAGE_KEY);
-        return;
-    }
-
+    // 1. SANEAMIENTO PREVIO (Idempotencia)
     if (focusGuardObserverThree) {
         focusGuardObserverThree.disconnect();
         focusGuardObserverThree = null;
@@ -31,9 +15,13 @@ function initLevelThreeIntervention(durationSeconds = 600) {
         document.removeEventListener('click', preventActionThree, true);
         document.removeEventListener('keydown', preventActionThree, true);
         document.removeEventListener('scroll', preventActionThree, true);
+        window.removeEventListener('scroll', preventActionThree, true);
     }
 
     if (countdownThree) clearInterval(countdownThree);
+
+    const globalStyleElem = document.getElementById('focus-guard-global-style');
+    if (globalStyleElem) globalStyleElem.remove();
 
     const existing = document.getElementById('focus-guard-lvl3');
     if (existing) existing.remove();
@@ -41,24 +29,66 @@ function initLevelThreeIntervention(durationSeconds = 600) {
     // Forzar estilos en HTML y body para YouTube
     const htmlElement = document.documentElement;
     const bodyElement = document.body;
-    
-    const originalHtmlOverflow = htmlElement.style.overflow;
-    const originalBodyOverflow = bodyElement ? bodyElement.style.overflow : '';
-    const originalHtmlPosition = htmlElement.style.position;
-    const originalBodyPosition = bodyElement ? bodyElement.style.position : '';
-    const originalHtmlHeight = htmlElement.style.height;
-    const originalBodyHeight = bodyElement ? bodyElement.style.height : '';
-    
+
+    if (originalStylesSnapshot) {
+        htmlElement.style.overflow = originalStylesSnapshot.html.overflow;
+        htmlElement.style.position = originalStylesSnapshot.html.position;
+        htmlElement.style.height = originalStylesSnapshot.html.height;
+
+        if (bodyElement) {
+            bodyElement.style.overflow = originalStylesSnapshot.body.overflow;
+            bodyElement.style.position = originalStylesSnapshot.body.position;
+            bodyElement.style.height = originalStylesSnapshot.body.height;
+        }
+
+        originalStylesSnapshot = null;
+    }
+
+    // 2. CALCULAR EL TIEMPO
+    const STORAGE_KEY = "focus_block_until";
+    const now = Date.now();
+    let blockedUntil = parseInt(localStorage.getItem(STORAGE_KEY)); // milisegundos
+
+    if (!blockedUntil || blockedUntil < now) {
+        blockedUntil = now + durationSeconds * 1000;
+        localStorage.setItem(STORAGE_KEY, String(blockedUntil));
+    }
+
+    let remaining = Math.ceil((blockedUntil - now) / 1000); // segundos
+
+    if (remaining <= 0) {
+        localStorage.removeItem(STORAGE_KEY);
+        return;
+    }
+
+
+    // 3. GUARDAR ESTILOS ORIGINALES Y CAMBIAR LOS ESTILOS
+    originalStylesSnapshot = {
+        html: {
+            overflow: htmlElement.style.overflow,
+            position: htmlElement.style.position,
+            height: htmlElement.style.height
+        },
+        body: bodyElement ? {
+            overflow: bodyElement.style.overflow,
+            position: bodyElement.style.position,
+            height: bodyElement.style.height
+        } : null
+    };
+
     htmlElement.style.overflow = 'hidden';
     htmlElement.style.position = 'relative';
     htmlElement.style.height = '100%';
-    
+
     if (bodyElement) {
         bodyElement.style.overflow = 'hidden';
         bodyElement.style.position = 'relative';
         bodyElement.style.height = '100%';
     }
 
+    silenceTeasingMedia();
+
+    // 4. CONSTRUCCIÓN DE LA INTERVENCIÓN
     const host = document.createElement('div');
     host.id = 'focus-guard-lvl3';
     
@@ -162,6 +192,8 @@ function initLevelThreeIntervention(durationSeconds = 600) {
     shadow.appendChild(style);
     shadow.appendChild(container);
 
+    // Se fuerza un reflow sincrónico. Esto garantiza que el motor de renderizado del navegador
+    // aplique los estilos críticos y las dimensiones del Shadow Host de forma inmediata
     host.getBoundingClientRect();
 
     const globalStyle = document.createElement('style');
@@ -187,13 +219,13 @@ function initLevelThreeIntervention(durationSeconds = 600) {
         document.documentElement.appendChild(globalStyle);
     }
 
+    // 5. GESTIÓN DE EVENTOS
     preventActionThree = (event) => {
-        if (host.contains(event.target) || shadow.contains(event.target)) {
-            return;
+        if (!event.composedPath().includes(host)) {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
         }
-        event.preventDefault();
-        event.stopPropagation();
-        return false;
     };
 
     document.addEventListener('click', preventActionThree, true);
@@ -219,8 +251,7 @@ function initLevelThreeIntervention(durationSeconds = 600) {
         }
         
         if (timerEl) {
-            const formattedTime = formatTime(remaining);
-            timerEl.textContent = formattedTime;
+            timerEl.textContent = formatTime(remaining);
 
             timerEl.style.transform = 'scale(1.001)';
             requestAnimationFrame(() => {
@@ -235,6 +266,7 @@ function initLevelThreeIntervention(durationSeconds = 600) {
         updateTimer();
     }, 1000);
 
+    // 6. SISTEMA ANTI-BORRADO
     focusGuardObserverThree = new MutationObserver((mutations) => {
         if (!document.documentElement.contains(host) || !host.isConnected) {
             console.log("Intento de evasión detectado (Nivel 3)");
@@ -271,6 +303,8 @@ function initLevelThreeIntervention(durationSeconds = 600) {
         attributeFilter: ['style', 'class']
     });
 
+
+    // 7. LÓGICA DE CIERRE Y LIMPIEZA
     function closeIntervention() {
         if (focusGuardObserverThree) {
             focusGuardObserverThree.disconnect();
@@ -284,15 +318,17 @@ function initLevelThreeIntervention(durationSeconds = 600) {
 
         preventActionThree = null;
 
-        htmlElement.style.overflow = originalHtmlOverflow;
-        htmlElement.style.position = originalHtmlPosition;
-        htmlElement.style.height = originalHtmlHeight;
-        
+        htmlElement.style.overflow = originalStylesSnapshot.html.overflow;
+        htmlElement.style.position = originalStylesSnapshot.html.position;
+        htmlElement.style.height = originalStylesSnapshot.html.height;
+
         if (bodyElement) {
-            bodyElement.style.overflow = originalBodyOverflow;
-            bodyElement.style.position = originalBodyPosition;
-            bodyElement.style.height = originalBodyHeight;
+            bodyElement.style.overflow = originalStylesSnapshot.body.overflow;
+            bodyElement.style.position = originalStylesSnapshot.body.position;
+            bodyElement.style.height = originalStylesSnapshot.body.height;
         }
+
+        originalStylesSnapshot = null;
         
         const globalStyleElem = document.getElementById('focus-guard-global-style');
         if (globalStyleElem) globalStyleElem.remove();
@@ -300,12 +336,21 @@ function initLevelThreeIntervention(durationSeconds = 600) {
         host.remove();
     }
 
+    // FUNCIONES DE AYUDA
     function formatTime(sec) {
         const m = Math.floor(sec / 60).toString().padStart(2, '0');
         const s = (sec % 60).toString().padStart(2, '0');
         return `${m}:${s}`;
     }
+    function silenceTeasingMedia() {
+        const videos = document.querySelectorAll('video');
+        videos.forEach(video => {
+            video.pause();
+            video.muted = true;
+            video.currentTime = 0;
+        });
+    }
 }
 
 // Iniciar bloqueo
-initLevelThreeIntervention(600);
+// initLevelThreeIntervention(60);
