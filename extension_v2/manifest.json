@@ -36,13 +36,7 @@
     "alarms",
     "idle"
   ],
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["intervention/component/level-one-intervention.js",
-        "intervention/component/level-two-intervention.js",
-        "intervention/component/level-three-intervention.js"],
-      "run_at": "document_idle"
-    }
+  "host_permissions": [
+    "<all_urls>"
   ]
 }

@@ -343,6 +343,8 @@ function initLevelThreeIntervention(durationSeconds = 60) {
         const globalStyleElem = document.getElementById('focus-guard-global-style');
         if (globalStyleElem) globalStyleElem.remove();
 
+        chrome.runtime.sendMessage({ action: "intervention-unlocked" });
+
         host.remove();
     }
 

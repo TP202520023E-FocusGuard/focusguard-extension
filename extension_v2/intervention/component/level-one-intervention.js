@@ -343,6 +343,7 @@ function initFocusIntervention(seconds = 50) {
             }
         }
 
+        chrome.runtime.sendMessage({ action: "intervention-unlocked" });
         host.remove();
     };
 

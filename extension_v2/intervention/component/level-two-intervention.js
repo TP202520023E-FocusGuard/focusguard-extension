@@ -303,6 +303,8 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
         }
         originalStylesSnapshotLvl2 = null;
 
+        chrome.runtime.sendMessage({ action: "intervention-unlocked" });
+
         host.remove();
     };
 

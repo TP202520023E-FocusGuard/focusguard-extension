@@ -151,7 +151,7 @@ async function login(user) {
         "expires_at": expirationTime
       });
 
-      initializeStorage();
+      await initializeStorage();
       await loadScreen();
 
     } else {
@@ -166,9 +166,9 @@ async function logout() {
   // Mostramos la pantalla de Registro
   showRegister();
 
-  updateTimeSpent(); // Subimos los datos del Storage al Backend
-  deleteAlarms(); // Eliminar pulso
-  clearAllStorage(); // Limpiamos el Storage completo
+  await updateTimeSpent(); // Subimos los datos del Storage al Backend
+  await deleteAlarms(); // Eliminar pulso
+  await clearAllStorage(); // Limpiamos el Storage completo
 
 }
 
@@ -192,8 +192,8 @@ function showDashboard() {
 // :::: FUNCIONES ON-MESSAGE ::::
 
 function initializeStorage() {
-
-  chrome.runtime.sendMessage("initialize-storage", (response) => {
+  /*
+  chrome.runtime.sendMessage({ action: "initialize-storage" }, (response) => {
     if (chrome.runtime.lastError) {
       console.error("Error:", chrome.runtime.lastError);
       return;
@@ -203,42 +203,59 @@ function initializeStorage() {
     else
       console.error("Storage no se pudo inicializar", response.message);
   });
+  */
 
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ action: "initialize-storage" }, (response) => {
+      if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+      if (response.status === "success") {
+        console.log("Storage inicializado exitosamente");
+        resolve();
+      } else {
+        reject(new Error(response.message));
+      }
+    });
+  });
 }
 function updateTimeSpent() {
-  chrome.runtime.sendMessage("update-time-spent", (response) => {
-    if (chrome.runtime.lastError) {
-      console.error("Error:", chrome.runtime.lastError);
-      return;
-    }
-    if (response.status === "success")
-      console.log("Tiempo usado actualizado en la BD exitosamente");
-    else
-      console.error("El tiempo usado no se pudo actualizar en la BD", response.message);
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ action: "update-time-spent" }, (response) => {
+      if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+      if (response.status === "success") {
+        console.log("Tiempo usado actualizado en la BD exitosamente");
+        resolve();
+      } else {
+        reject(new Error(response.message));
+      }
+    });
   });
 }
+
 function deleteAlarms() {
-  chrome.runtime.sendMessage("delete-alarms", (response) => {
-    if (chrome.runtime.lastError) {
-      console.error("Error:", chrome.runtime.lastError);
-      return;
-    }
-    if (response.status === "success")
-      console.log("Alarmas eliminadas exitosamente");
-    else
-      console.error("Las alarmas no se pudieron eliminar", response.message);
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ action: "delete-alarms" }, (response) => {
+      if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+      if (response.status === "success") {
+        console.log("Alarmas eliminadas exitosamente");
+        resolve();
+      } else {
+        reject(new Error(response.message));
+      }
+    });
   });
 }
+
 function clearAllStorage() {
-  chrome.runtime.sendMessage("clear-all-storage", (response) => {
-    if (chrome.runtime.lastError) {
-      console.error("Error:", chrome.runtime.lastError);
-      return;
-    }
-    if (response.status === "success")
-      console.log("Storage limpiado exitosamente");
-    else
-      console.error("El Storage no se pudo limpiar", response.message);
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ action: "clear-all-storage" }, (response) => {
+      if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+      if (response.status === "success") {
+        console.log("Storage limpiado exitosamente");
+        resolve();
+      } else {
+        reject(new Error(response.message));
+      }
+    });
   });
 }
 

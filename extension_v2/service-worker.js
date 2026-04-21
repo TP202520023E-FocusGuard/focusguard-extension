@@ -1,6 +1,7 @@
 const DEFAULT_ORIGIN = "default";
-const TIME_BETWEEN_INTERVENTIONS = 30; // minutes
-const TIME_OF_GRACE = 5; // minutes
+const TIME_BETWEEN_INTERVENTIONS = 20 * 60 * 1000; // 20 min en ms
+const TIME_OF_GRACE = 5 * 60 * 1000; // 5 min en ms
+const TYPE_INTERVENTION = 1; // Ejemplo nivel 3
 let timerContent = null;
 let focusTimeout = null;
 
@@ -46,28 +47,46 @@ async function handleOnStartup() {
   }
 
 }
-function handleOnMessage(message, sender, sendResponse) {
+async function handleOnMessage(message, sender, sendResponse) {
 
   const actions = {
     "initialize-storage": initializeStorage,
     "update-time-spent": updateTimeSpent,
     "delete-alarms": deleteAlarms,
-    "clear-all-storage": clearAllStorage
+    "clear-all-storage": clearAllStorage,
+    "intervention-unlocked": handleUnlock
   };
 
-  const action = actions[message];
+  const actionName = message.action;
+  const action = actions[actionName];
 
   if (action) {
+    /*
+    try {
+      // Si la función es asíncrona (como handleUnlock), manejamos la promesa
+      Promise.resolve(action(message)).then(() => {
+        sendResponse({ status: "success" });
+      }).catch((error) => {
+        console.error("Error en la acción:", error);
+        sendResponse({ status: "error", message: error.message });
+      });
+
+      return true; // Mantenemos el canal abierto para la respuesta asíncrona
+    } catch (error) {
+      console.error("Error síncrono en la acción:", error);
+      sendResponse({ status: "error", message: error.message });
+      return false;
+    }
+    */
 
     try {
-      action();
+      // ESPERAMOS a que la acción termine de verdad (sea async o no)
+      await action(message);
       sendResponse({ status: "success" });
     } catch (error) {
-      console.error("Error en la acción:", error);
       sendResponse({ status: "error", message: error.message });
     }
-
-    return true; // Mantenemos el canal abierto para la respuesta asíncrona
+    return true;
   }
 
   return false; // Opcional: manejar mensajes no reconocidos
@@ -314,16 +333,22 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
     if (!id_web_before) { // Pestaña recién creada
       await setWebComplete(tabId, hostname);
       if (is_distractive) {
-        // await shouldLaunchIntervention();
+        await shouldLaunchIntervention(tabId);
       }
     } else if (focus_chrome) { // Estabas dentro de Chrome y ya existía esta pestaña
       if (last_domain !== hostname) {
         await updateWebDeparture(id_web_before, { fecha_hora_salida: new Date() });
         await setWebComplete(tabId, hostname);
       }
+      if (is_distractive) {
+        await shouldLaunchIntervention(tabId);
+      }
     } else { // Estabas fuera de Chrome y volviste (recargando la página o usando un acceso directo a otra web)
       await setWebComplete(tabId, hostname);
       await setFocusChrome(true);
+      if (is_distractive) {
+        await shouldLaunchIntervention(tabId);
+      }
     }
 
     await chrome.storage.local.set({"last_domain": hostname});
@@ -962,10 +987,11 @@ async function updateTimeSpent() {
     let { accumulated_leisure_time, last_synced_time = 0 } = await chrome.storage.local.get(["accumulated_leisure_time", "last_synced_time"]);
     if (!accumulated_leisure_time) return;
 
-    const time_spent_local = Math.floor(accumulated_leisure_time / 60); // convertimos a minutos
-    if (time_spent_local < last_synced_time) last_synced_time = 0;
+    let time_spent_local = Math.floor(accumulated_leisure_time / 60); // convertimos a minutos
+    let last_synced_min = Math.floor(last_synced_time / 60); // convertimos a minutos
+    if (time_spent_local < last_synced_min) last_synced_min = 0;
 
-    const minutes_to_add = time_spent_local - last_synced_time;
+    const minutes_to_add = time_spent_local - last_synced_min;
     if (minutes_to_add <= 0) return;
 
     const id_user = await getUserLogged();
@@ -982,7 +1008,7 @@ async function updateTimeSpent() {
 
     if (!response.ok) throw new Error(`Error al actualizar el tiempo usado en el BACKEND: ${response.status}`);
 
-    await chrome.storage.local.set({ "last_synced_time": time_spent_local });
+    await chrome.storage.local.set({ "last_synced_time": accumulated_leisure_time });
 
   } catch (e) {
     console.error("Error al subir la data del storage al backend", e.message);
@@ -998,66 +1024,98 @@ async function uploadDataStorage() {
 
 // :::::: FUNCIONES OPERATIVAS ::::::
 async function isThereRestTimeLeft() {
-  let { assigned_rest_time = 0, accumulated_leisure_time = 0 } = await chrome.storage.local.get(["assigned_rest_time", "accumulated_leisure_time"]);
+  const data = await chrome.storage.local.get(["assigned_rest_time", "accumulated_leisure_time"]);
+  const assigned = (data.assigned_rest_time || 0) * 60; // Convertir a segundos
+  const accumulated = data.accumulated_leisure_time || 0;
 
-  if (assigned_rest_time && accumulated_leisure_time) {
-    return (assigned_rest_time * 60) > accumulated_leisure_time;
-  }
-  else if (assigned_rest_time) return true;
-  else if (accumulated_leisure_time) return false;
-  else return true;
+  // Si no hay tiempo asignado, por defecto permitimos (true)
+  if (!data.assigned_rest_time) return false;
+  return assigned > accumulated;
 }
-async function wasThereAnInterventionBefore() {
-  let { lastIntervention = null } = await chrome.storage.local.get("lastIntervention");
-  return lastIntervention;
+async function getTodayIntervention() {
+  const { last_intervention } = await chrome.storage.local.get("last_intervention");
+  if (!last_intervention) return null;
+
+  const launchDate = new Date(last_intervention.launch_date);
+  const today = new Date();
+
+  // Validamos si la fecha guardada es de HOY
+  const isToday = launchDate.getDate() === today.getDate() &&
+      launchDate.getMonth() === today.getMonth() &&
+      launchDate.getFullYear() === today.getFullYear();
+
+  return isToday ? { ...last_intervention, launch_date: launchDate } : null;
 }
-function isTimeForANewIntervention(intervention) {
-  let launch_date = intervention["launch_date"] || null; // datetime
-  let now = new Date();
+async function injectIntervention(tabId, type, duration) {
+  const files = {
+    1: "intervention/component/level-one-intervention.js",
+    2: "intervention/component/level-two-intervention.js",
+    3: "intervention/component/level-three-intervention.js"
+  };
 
-  if (launch_date) {
-    let time_passed = now - launch_date;
-    return time_passed >= TIME_BETWEEN_INTERVENTIONS;
-  }
+  try {
+    // 1. Inyectamos el archivo de definición
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: [files[type]]
+    });
 
-  return true;
-}
-function wasLastInterventionUnlock(intervention) {
-  let unlock_date = intervention["unlock_date"] || null; // datetime
-  return !!unlock_date;
-}
-function has5MinutesPassed(intervention) {
-  let launch_date = intervention["launch_date"] || null; // datetime
-  let now = new Date();
+    // 2. Ejecutamos la inicialización
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (t, d) => {
+        if (t === 1 && typeof initFocusIntervention === 'function') initFocusIntervention(d);
+        if (t === 2 && typeof initLevelTwoIntervention === 'function') initLevelTwoIntervention();
+        if (t === 3 && typeof initLevelThreeIntervention === 'function') initLevelThreeIntervention(d);
+      },
+      args: [type, duration]
+    });
 
-  return now - launch_date >= TIME_OF_GRACE;
-}
-function showPendingIntervention(intervention){
-
-}
-async function shouldLaunchIntervention() {
-  let isThereTimeLeft = await isThereRestTimeLeft();
-
-  if (!isThereTimeLeft) {
-
-    let intervention = await wasThereAnInterventionBefore();
-    if (intervention) {
-      let isTime = isTimeForANewIntervention(intervention);
-      if (isTime) {
-        // LOGICA DE MACHINE LEARNING
+    // 3. Actualizamos el estado en Storage
+    await chrome.storage.local.set({
+      last_intervention: {
+        launch_date: new Date().toISOString(),
+        type: type,
+        duration: duration,
+        unlock_date: null // Se llenará cuando el usuario la desbloquee con éxito
       }
-      else {
-        let wasUnlock = wasLastInterventionUnlock(intervention);
-        if (!wasUnlock) {
-          let hasPassed = has5MinutesPassed(intervention);
-          if (!hasPassed) {
-            showPendingIntervention(intervention);
-          }
-        }
+    });
+
+  } catch (err) {
+    console.error("Fallo en la inyección:", err);
+  }
+}
+async function shouldLaunchIntervention(tabId) {
+  const hasTime = await isThereRestTimeLeft();
+  if (hasTime) return; // Paso 1: Tiene tiempo, no molestar.
+
+  const intervention = await getTodayIntervention();
+
+  // Si no hay intervención hoy (Paso 2)
+  if (!intervention) {
+    await injectIntervention(tabId, TYPE_INTERVENTION, 15);
+    return;
+  }
+
+  // Si ya hubo una hoy, evaluamos tiempos (Paso 3)
+  const now = new Date();
+  const timePassedSinceLaunch = now - intervention.launch_date;
+
+  if (timePassedSinceLaunch >= TIME_BETWEEN_INTERVENTIONS) {
+    // Ya pasaron 20 min, lanzamos una nueva
+    await injectIntervention(tabId, TYPE_INTERVENTION, 15);
+  }
+  else {
+    // No han pasado 20 min, verificar si eludió (Paso 4)
+    const wasUnlocked = !!intervention.unlock_date;
+
+    if (!wasUnlocked) {
+      // No la desbloqueó. ¿Sigue en el periodo de gracia de 5 min? (Paso 5)
+      if (timePassedSinceLaunch < TIME_OF_GRACE) {
+        // RE-LANZAR la misma intervención (Anti-evasión)
+        console.log("Anti-evasión: Re-lanzando intervención no terminada.");
+        await injectIntervention(tabId, intervention.type, intervention.duration);
       }
-    }
-    else {
-      // LOGICA DE MACHINE LEARNING
     }
   }
 }
@@ -1132,7 +1190,7 @@ async function initializeStorage() {
     updates.assigned_rest_time = await getAssignedRestTime(user_id) || 0; // minutos
     updates.interventions_allowed = ((accumulated_time ?? 0) >= (updates.assigned_rest_time * 60));
     updates.accumulated_leisure_time = accumulated_time; // segundos
-    updates.last_synced_time = accumulated_time;
+    updates.last_synced_time = accumulated_time; // segundos
 
     await chrome.storage.local.set(updates);
     console.log("Inicialización del Storage: ", updates);
@@ -1252,6 +1310,17 @@ async function updateRestTimeLocal(newRestTime) {
     throw e;
   }
 
+}
+async function handleUnlock() {
+  const { last_intervention } = await chrome.storage.local.get("last_intervention");
+  if (last_intervention) {
+    const updatedIntervention = {
+      ...last_intervention,
+      unlock_date: new Date().toISOString() // Sellamos el éxito
+    };
+    await chrome.storage.local.set({ last_intervention: updatedIntervention });
+    console.log("Estado de FocusGuard: Intervención completada y registrada.");
+  }
 }
 
 async function init() {
