@@ -1,88 +1,97 @@
-// Las variables definidas de forma global toman el mando y limpian los datos gurdados del mismo script anterior
-let focusGuardObserverOne = null;
-let preventActionOne = null;
-let countdownOne = null;
-let originalStylesSnapshotOne = null;
+// Usamos un bloque para evitar que la declaración de la función 'initFocusIntervention' choque
+{
+    // 1. DEFINICIÓN DE VARIABLES DE ESTADO (Usando window para persistencia)
+    // Las variables definidas de forma global toman el mando y limpian los datos guardados del mismo script anterior
+    /*
+    let focusGuardObserverOne = null;
+    let preventActionOne = null;
+    let countdownOne = null;
+    let originalStylesSnapshotOne = null;
+    */
+    window.focusGuardObserverOne = window.focusGuardObserverOne || null;
+    window.preventActionOne = window.preventActionOne || null;
+    window.countdownOne = window.countdownOne || null;
+    window.originalStylesSnapshotOne = window.originalStylesSnapshotOne || null;
 
-function initFocusIntervention(seconds = 50) {
-    const htmlElement = document.documentElement;
-    const bodyElement = document.body;
+    function initFocusIntervention(seconds = 50) {
+        const htmlElement = document.documentElement;
+        const bodyElement = document.body;
 
-    // 1. SANEAMIENTO PREVIO (Idempotencia)
-    if (focusGuardObserverOne) {
-        focusGuardObserverOne.disconnect();
-        focusGuardObserverOne = null;
-    }
+        // 1. SANEAMIENTO PREVIO (Idempotencia)
+        if (window.focusGuardObserverOne) {
+            window.focusGuardObserverOne.disconnect();
+            window.focusGuardObserverOne = null;
+        }
 
-    if (preventActionOne) {
-        cleanupListeners();
-        preventActionOne = null;
-    }
+        if (window.preventActionOne) {
+            cleanupListeners();
+            window.preventActionOne = null;
+        }
 
-    if (countdownOne) {
-        clearInterval(countdownOne);
-        countdownOne = null;
-    }
+        if (window.countdownOne) {
+            clearInterval(window.countdownOne);
+            window.countdownOne = null;
+        }
 
-    if (originalStylesSnapshotOne) {
-        htmlElement.style.overflow = originalStylesSnapshotOne.html.overflow;
-        htmlElement.style.position = originalStylesSnapshotOne.html.position;
-        htmlElement.style.height = originalStylesSnapshotOne.html.height;
+        if (window.originalStylesSnapshotOne) {
+            htmlElement.style.overflow = window.originalStylesSnapshotOne.html.overflow;
+            htmlElement.style.position = window.originalStylesSnapshotOne.html.position;
+            htmlElement.style.height = window.originalStylesSnapshotOne.html.height;
+
+            if (bodyElement) {
+                bodyElement.style.overflow = window.originalStylesSnapshotOne.body.overflow;
+                bodyElement.style.position = window.originalStylesSnapshotOne.body.position;
+                bodyElement.style.height = window.originalStylesSnapshotOne.body.height;
+            }
+            window.originalStylesSnapshotOne = null;
+        }
+
+        const existing = document.getElementById('focus-guard-container');
+        if (existing) existing.remove();
+
+
+        // 2. CAPTURA DE ESTADOS ORIGINALES
+        window.originalStylesSnapshotOne = {
+            html: {
+                overflow: htmlElement.style.overflow,
+                position: htmlElement.style.position,
+                height: htmlElement.style.height
+            },
+            body: bodyElement ? {
+                overflow: bodyElement.style.overflow,
+                position: bodyElement.style.position,
+                height: bodyElement.style.height
+            } : null
+        };
+
+        // Aplicar bloqueo de scroll y posición (Crítico para YouTube)
+        htmlElement.style.setProperty('overflow', 'hidden', 'important');
+        htmlElement.style.setProperty('position', 'relative', 'important');
+        htmlElement.style.setProperty('height', '100%', 'important');
 
         if (bodyElement) {
-            bodyElement.style.overflow = originalStylesSnapshotOne.body.overflow;
-            bodyElement.style.position = originalStylesSnapshotOne.body.position;
-            bodyElement.style.height = originalStylesSnapshotOne.body.height;
+            bodyElement.style.setProperty('overflow', 'hidden', 'important');
+            bodyElement.style.setProperty('position', 'relative', 'important');
+            bodyElement.style.setProperty('height', '100%', 'important');
         }
-        originalStylesSnapshotOne = null;
-    }
 
-    const existing = document.getElementById('focus-guard-container');
-    if (existing) existing.remove();
+        silenceTeasingMedia();
 
 
-    // 2. CAPTURA DE ESTADOS ORIGINALES
-    originalStylesSnapshot = {
-        html: {
-            overflow: htmlElement.style.overflow,
-            position: htmlElement.style.position,
-            height: htmlElement.style.height
-        },
-        body: bodyElement ? {
-            overflow: bodyElement.style.overflow,
-            position: bodyElement.style.position,
-            height: bodyElement.style.height
-        } : null
-    };
+        // 3. CONSTRUCCIÓN DE LA INTERVENCIÓN
+        const host = document.createElement('div');
+        host.id = 'focus-guard-container';
 
-    // Aplicar bloqueo de scroll y posición (Crítico para YouTube)
-    htmlElement.style.setProperty('overflow', 'hidden', 'important');
-    htmlElement.style.setProperty('position', 'relative', 'important');
-    htmlElement.style.setProperty('height', '100%', 'important');
+        // Priorizamos el montaje en el body, si no existe, al root
+        const mountPoint = document.body || document.documentElement;
+        mountPoint.appendChild(host);
 
-    if (bodyElement) {
-        bodyElement.style.setProperty('overflow', 'hidden', 'important');
-        bodyElement.style.setProperty('position', 'relative', 'important');
-        bodyElement.style.setProperty('height', '100%', 'important');
-    }
+        // Deniega el acceso a los nodos desde fuera
+        // Impide que el estilo del sitio web original (ej. YouTube) afecte al temporizador, y viceversa.
+        const shadow = host.attachShadow({mode: 'closed'});
 
-    silenceTeasingMedia();
-
-
-    // 3. CONSTRUCCIÓN DE LA INTERVENCIÓN
-    const host = document.createElement('div');
-    host.id = 'focus-guard-container';
-
-    // Priorizamos el montaje en el body, si no existe, al root
-    const mountPoint = document.body || document.documentElement;
-    mountPoint.appendChild(host);
-
-    // Deniega el acceso a los nodos desde fuera
-    // Impide que el estilo del sitio web original (ej. YouTube) afecte al temporizador, y viceversa.
-    const shadow = host.attachShadow({mode: 'closed'});
-
-    const style = document.createElement('style');
-    style.textContent = `
+        const style = document.createElement('style');
+        style.textContent = `
         :host {
             position: fixed;
             top: 0; left: 0;
@@ -199,9 +208,9 @@ function initFocusIntervention(seconds = 50) {
         .hint { font-size: 11px; color: #475569; margin-top: 20px; }
     `;
 
-    const container = document.createElement('div');
-    container.className = 'card';
-    container.innerHTML = `
+        const container = document.createElement('div');
+        container.className = 'card';
+        container.innerHTML = `
         <div class="badge">Enfoque</div>
         <div class="quote">"El trabajo que nunca se empieza es el que más tarda en finalizarse."</div>
         
@@ -220,74 +229,74 @@ function initFocusIntervention(seconds = 50) {
         <div class="hint">Rompiendo el ciclo de procrastinación</div>
     `;
 
-    shadow.appendChild(style);
-    shadow.appendChild(container);
+        shadow.appendChild(style);
+        shadow.appendChild(container);
 
-    host.getBoundingClientRect(); // Forzar reflow sincrónico
-
-
-    // 4. LÓGICA DE LA INTERVENCIÓN
-    const timerText = container.querySelector('#int-timer');
-    const btn = container.querySelector('#int-btn');
-    const progressFill = container.querySelector('.progress-fill');
-    let remaining = seconds;
-    const circumference = 345; // Basado en 2 * π * r (donde r=55)
-
-    const updateProgress = () => {
-        const progress = ((seconds - remaining) / seconds) * circumference;
-        progressFill.style.strokeDashoffset = Math.max(0, circumference - progress);
-    };
-
-    countdownOne = setInterval(() => {
-        remaining--;
-        timerText.innerText = remaining;
-        updateProgress();
-
-        if (remaining <= 0) {
-            clearInterval(countdownOne);
-            btn.classList.add('active');
-            btn.innerText = 'Continuar';
-        }
-
-        // Render hack
-        timerText.style.transform = 'scale(1.001)';
-        requestAnimationFrame(() => timerText.style.transform = 'scale(1)');
-    }, 1000);
+        host.getBoundingClientRect(); // Forzar reflow sincrónico
 
 
-    // 5. GESTIÓN DE EVENTOS
-    // Bloquear interacción con el resto de la página
-    preventActionOne = (event) => {
-        // composedPath() devuelve un arreglo con todos los nodos por los que pasó el evento [host, body, html, document, window].
-        if (!event.composedPath().includes(host)) {
-            event.preventDefault(); // Cancela el evento
-            event.stopPropagation(); // Evita que otros listeners en elementos superiores detecten el evento.
-            event.stopImmediatePropagation();
-        }
-    };
+        // 4. LÓGICA DE LA INTERVENCIÓN
+        const timerText = container.querySelector('#int-timer');
+        const btn = container.querySelector('#int-btn');
+        const progressFill = container.querySelector('.progress-fill');
+        let remaining = seconds;
+        const circumference = 345; // Basado en 2 * π * r (donde r=55)
 
-    // Atrapa el clic o la tecla antes de que lleguen a la página web.
-    document.addEventListener('click', preventActionOne, true);
-    document.addEventListener('keydown', preventActionOne, true);
-    document.addEventListener('scroll', preventActionOne, true);
-    window.addEventListener('scroll', preventActionOne, true);
+        const updateProgress = () => {
+            const progress = ((seconds - remaining) / seconds) * circumference;
+            progressFill.style.strokeDashoffset = Math.max(0, circumference - progress);
+        };
+
+        window.countdownOne = setInterval(() => {
+            remaining--;
+            timerText.innerText = remaining;
+            updateProgress();
+
+            if (remaining <= 0) {
+                clearInterval(window.countdownOne);
+                btn.classList.add('active');
+                btn.innerText = 'Continuar';
+            }
+
+            // Render hack
+            timerText.style.transform = 'scale(1.001)';
+            requestAnimationFrame(() => timerText.style.transform = 'scale(1)');
+        }, 1000);
 
 
-    // 6. SISTEMA ANTI-BORRADO
-    focusGuardObserverOne = new MutationObserver((mutations) => {
-        // Validación de existencia física
-        if (!document.documentElement.contains(host) || !host.isConnected) {
-            console.log("¡Intento de evasión detectado! Reiniciando intervención...");
-            if (preventActionOne) cleanupListeners();
-            initFocusIntervention(remaining > 0 ? remaining : 5);
-            return;
-        }
+        // 5. GESTIÓN DE EVENTOS
+        // Bloquear interacción con el resto de la página
+        window.preventActionOne = (event) => {
+            // composedPath() devuelve un arreglo con todos los nodos por los que pasó el evento [host, body, html, document, window].
+            if (!event.composedPath().includes(host)) {
+                event.preventDefault(); // Cancela el evento
+                event.stopPropagation(); // Evita que otros listeners en elementos superiores detecten el evento.
+                event.stopImmediatePropagation();
+            }
+        };
 
-        // Validación de integridad de estilo (Anti-ocultamiento)
-        for (const mutation of mutations) {
-            if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
-                if (mutation.target === host) {
-                    host.style.cssText = `
+        // Atrapa el clic o la tecla antes de que lleguen a la página web.
+        document.addEventListener('click', window.preventActionOne, true);
+        document.addEventListener('keydown', window.preventActionOne, true);
+        document.addEventListener('scroll', window.preventActionOne, true);
+        window.addEventListener('scroll', window.preventActionOne, true);
+
+
+        // 6. SISTEMA ANTI-BORRADO
+        window.focusGuardObserverOne = new MutationObserver((mutations) => {
+            // Validación de existencia física
+            if (!document.documentElement.contains(host) || !host.isConnected) {
+                console.log("¡Intento de evasión detectado! Reiniciando intervención...");
+                if (window.preventActionOne) cleanupListeners();
+                initFocusIntervention(remaining > 0 ? remaining : 5);
+                return;
+            }
+
+            // Validación de integridad de estilo (Anti-ocultamiento)
+            for (const mutation of mutations) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+                    if (mutation.target === host) {
+                        host.style.cssText = `
                         position: fixed !important;
                         top: 0 !important; left: 0 !important;
                         width: 100vw !important; height: 100vh !important;
@@ -295,71 +304,72 @@ function initFocusIntervention(seconds = 50) {
                         pointer-events: all !important;
                         display: flex !important;
                     `;
+                    }
                 }
             }
-        }
-    });
-
-    focusGuardObserverOne.observe(document.documentElement, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['style', 'class']
-    });
-
-
-    // 7. CIERRE Y LIMPIEZA
-    // Liberar eventos al cerrar
-    function cleanupListeners() {
-        document.removeEventListener('click', preventActionOne, true);
-        document.removeEventListener('keydown', preventActionOne, true);
-        document.removeEventListener('scroll', preventActionOne, true);
-        window.removeEventListener('scroll', preventActionOne, true);
-    }
-
-    const closeIntervention = () => {
-        if (countdownOne) {
-            clearInterval(countdownOne);
-            countdownOne = null;
-        }
-
-        if (focusGuardObserverOne) {
-            focusGuardObserverOne.disconnect();
-            focusGuardObserverOne = null;
-        }
-
-        if (preventActionOne) cleanupListeners();
-        preventActionOne = null;
-
-        // Restauración Snapshot
-        if (originalStylesSnapshot) {
-            htmlElement.style.overflow = originalStylesSnapshot.html.overflow;
-            htmlElement.style.position = originalStylesSnapshot.html.position;
-            htmlElement.style.height = originalStylesSnapshot.html.height;
-            if (bodyElement && originalStylesSnapshot.body) {
-                bodyElement.style.overflow = originalStylesSnapshot.body.overflow;
-                bodyElement.style.position = originalStylesSnapshot.body.position;
-                bodyElement.style.height = originalStylesSnapshot.body.height;
-            }
-        }
-
-        chrome.runtime.sendMessage({ action: "intervention-unlocked" });
-        host.remove();
-    };
-
-    btn.onclick = () => {
-        if (remaining > 0) return;
-        closeIntervention();
-    };
-
-    function silenceTeasingMedia() {
-        const videos = document.querySelectorAll('video');
-        videos.forEach(video => {
-            video.pause();
-            video.muted = true;
-            video.currentTime = 0;
         });
-    }
-}
 
-//initFocusIntervention(50);
+        window.focusGuardObserverOne.observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['style', 'class']
+        });
+
+
+        // 7. CIERRE Y LIMPIEZA
+        // Liberar eventos al cerrar
+        function cleanupListeners() {
+            document.removeEventListener('click', window.preventActionOne, true);
+            document.removeEventListener('keydown', window.preventActionOne, true);
+            document.removeEventListener('scroll', window.preventActionOne, true);
+            window.removeEventListener('scroll', window.preventActionOne, true);
+        }
+
+        const closeIntervention = () => {
+            if (window.countdownOne) {
+                clearInterval(window.countdownOne);
+                window.countdownOne = null;
+            }
+
+            if (window.focusGuardObserverOne) {
+                window.focusGuardObserverOne.disconnect();
+                window.focusGuardObserverOne = null;
+            }
+
+            if (window.preventActionOne) cleanupListeners();
+            window.preventActionOne = null;
+
+            // Restauración Snapshot
+            if (window.originalStylesSnapshotOne) {
+                htmlElement.style.overflow = window.originalStylesSnapshotOne.html.overflow;
+                htmlElement.style.position = window.originalStylesSnapshotOne.html.position;
+                htmlElement.style.height = window.originalStylesSnapshotOne.html.height;
+                if (bodyElement && window.originalStylesSnapshotOne.body) {
+                    bodyElement.style.overflow = window.originalStylesSnapshotOne.body.overflow;
+                    bodyElement.style.position = window.originalStylesSnapshotOne.body.position;
+                    bodyElement.style.height = window.originalStylesSnapshotOne.body.height;
+                }
+            }
+
+            chrome.runtime.sendMessage({action: "intervention-unlocked"});
+            host.remove();
+        };
+
+        btn.onclick = () => {
+            if (remaining > 0) return;
+            closeIntervention();
+        };
+
+        function silenceTeasingMedia() {
+            const videos = document.querySelectorAll('video');
+            videos.forEach(video => {
+                video.pause();
+                video.muted = true;
+                video.currentTime = 0;
+            });
+        }
+    }
+
+    //initFocusIntervention(50);
+}

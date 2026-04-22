@@ -1,6 +1,7 @@
 const DEFAULT_ORIGIN = "default";
-const TIME_BETWEEN_INTERVENTIONS = 20 * 60 * 1000; // 20 min en ms
-let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 1; // Ejemplo nivel 3
+const TIME_BETWEEN_INTERVENTIONS = 1 * 60 * 1000; // 20 min en ms
+//let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 1;
+let TYPE_INTERVENTION = 1;
 let timerContent = null;
 let focusTimeout = null;
 
@@ -273,7 +274,7 @@ async function handleWindowsChanged(windowId) {
 
         if (activeTab && activeTab?.id !== last_web_activated) { // Fue un cambio estre pestañas. Sino significa que se abrió una extensión
           await closeOldWebAndContent(tabs_tracking, content_tracking, last_web_activated);
-          await openNewWebAndContent(activeTab, leisure_start, interventions_activated);
+          await openNewWebAndContent(activeTab, null, interventions_activated);
           console.log("ESCENARIO 1: Cambio entre pestañas");
         } else console.log("ESCENARIO 1: Se abrió una EXT | Se cancela el registro de cambio de pestaña");
 
@@ -301,7 +302,7 @@ async function handleWindowsChanged(windowId) {
       // El handleActivated no actualiza el "last_web_activated" cuando solo se cambia entre pestañas activas de sus respectivas ventanas
       if (activeTab && activeTab.id !== last_web_activated ) {
         await closeOldWebAndContent(tabs_tracking, content_tracking, last_web_activated);
-        await openNewWebAndContent(activeTab, leisure_start, interventions_activated);
+        await openNewWebAndContent(activeTab, null, interventions_activated);
         console.log("ESCENARIO 3: Cambio de ventana");
       } else console.log("ESCENARIO 3: Cerró una EXT. | Ya no registra cambio de pestaña | Se actualiza su -1");
       // NOTA -> Cuando abres una nueva ventana, se ejecuta el handleActivated y ya no se registra cambio de pestaña en aquí, pero si tu siguiente click es fuera de la nueva ventana serás -1 y false, sino serás -1 y true
@@ -455,17 +456,16 @@ async function handleActivated(activeInfo) {
       return;
     }
 
-    // --- REGISTRO DE SALIDA ---
+    // --- REGISTRO DE SALIDA E INGRESO A PESTAÑA YA EXISTENTE ---
     // Si focus_chrome es false significa que el usuario clickeo otra pestaña al reenfocarse a Chrome
-    if (focus_chrome)
+    if (focus_chrome) {
       await closeOldWebAndContent(tabs_tracking, content_tracking, oldTabId);
-    else
+      await openNewWebAndContent(tab_info, null, interventions_activated);
+    }
+    else {
       await setFocusChrome(true);
-
-
-    // --- REGISTRO DE INGRESO A PESTAÑA YA EXISTENTE ---
-
-    await openNewWebAndContent(tab_info, leisure_start, interventions_activated);
+      await openNewWebAndContent(tab_info, leisure_start, interventions_activated);
+    }
 
   } catch (e) {
     console.error("Error en handleActivated:", e);
@@ -494,7 +494,7 @@ async function handleAlarm(alarm) {
           await setFocusChrome(false);
         else {
           // Se renueva solo si ya se estaba en ocio antes de actualizar el leisure_start
-          if (leisure_start) await syncLeisureStatus(leisure_start, interventions_activated);
+          if (leisure_start) await syncLeisureStatus(null, interventions_activated);
         }
 
       } else { // Si NO estabas dentro de Chrome...
@@ -1006,12 +1006,13 @@ async function injectIntervention(tabId, type, duration) {
 }
 async function shouldLaunchIntervention(tabId, interventions_activated) {
   //const hasTime = await isThereRestTimeLeft();
-  if (interventions_activated) return; // Paso 1: Tiene tiempo, no molestar.
+  if (!interventions_activated) return; // Paso 1: Tiene tiempo, no molestar.
 
   const intervention = await getTodayIntervention();
 
-  // Si no hay intervención hoy (Paso 2)
+  // Si no hay intervención hoy, lanzamos sin problema
   if (!intervention) {
+    console.log("PRIMERA INTERVENCIÓN LANZADA");
     await injectIntervention(tabId, TYPE_INTERVENTION, 15);
     return;
   }
@@ -1020,9 +1021,11 @@ async function shouldLaunchIntervention(tabId, interventions_activated) {
 
   if (wasUnlocked) {
     const now = new Date();
-    const timePassedSinceUnlock = now - intervention.unlock_date;
+    const timePassedSinceUnlock = now - new Date(intervention.unlock_date);
+    console.log("Tiempo transcurrido desde desbloqueo: ", timePassedSinceUnlock / 1000);
 
     if (timePassedSinceUnlock >= TIME_BETWEEN_INTERVENTIONS) {
+      console.log("INTERVENCIÓN LANZADA");
       await injectIntervention(tabId, TYPE_INTERVENTION, 15);
     }
   } else {
@@ -1113,7 +1116,7 @@ async function finishOcioSession() {
 
     // Determinamos si se permiten intervenciones
     const interventions_activated = assigned_rest_time && new_accumulated >= (assigned_rest_time * 60);
-
+    console.log("leisure_start CERRADO")
     await chrome.storage.local.set({
       "accumulated_leisure_time": new_accumulated, // segundos
       "leisure_start": null,
@@ -1329,8 +1332,13 @@ async function initializeStorage() {
 async function updateRestTimeLocal(newRestTime) {
 
   try {
-    if (newRestTime)
-      await chrome.storage.local.set({ "assigned_rest_time": newRestTime });
+    if (newRestTime) {
+      let { accumulated_leisure_time = 0 } = await chrome.storage.local.get("accumulated_leisure_time");
+
+      const interventions_activated = newRestTime && accumulated_leisure_time >= (newRestTime * 60);
+
+      await chrome.storage.local.set({ "assigned_rest_time": newRestTime, interventions_activated });
+    }
     else
       throw new Error("El tiempo proporcionado no es válido");
   } catch (e) {
@@ -1351,6 +1359,7 @@ async function syncLeisureStatus(leisure_start, interventions_activated) {
   const canEnterLeisure = isUnlocked || !interventions_activated;
 
   if (!leisure_start && canEnterLeisure) {
+    console.log("leisure_start INICIADO")
     await chrome.storage.local.set({ "leisure_start": Date.now() });
   } else if (leisure_start && !canEnterLeisure) {
     await finishOcioSession();
