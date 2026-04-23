@@ -40,6 +40,9 @@
             window.fgOriginalStylesSnapshot = null;
         }
 
+        const globalStyleElem = document.getElementById('focus-guard-global-style');
+        if (globalStyleElem) globalStyleElem.remove();
+
         const existing = document.getElementById('focus-guard-container');
         if (existing) existing.remove();
 
@@ -336,21 +339,25 @@
                 window.fgObserver = null;
             }
 
-            if (window.fgPreventAction) cleanupListeners();
-            window.fgPreventAction = null;
+            if (window.fgPreventAction) {
+                cleanupListeners();
+                window.fgPreventAction = null;
+            }
 
             // Restauración Snapshot
             if (window.fgOriginalStylesSnapshot) {
                 htmlElement.style.overflow = window.fgOriginalStylesSnapshot.html.overflow;
                 htmlElement.style.position = window.fgOriginalStylesSnapshot.html.position;
                 htmlElement.style.height = window.fgOriginalStylesSnapshot.html.height;
+
                 if (bodyElement && window.fgOriginalStylesSnapshot.body) {
                     bodyElement.style.overflow = window.fgOriginalStylesSnapshot.body.overflow;
                     bodyElement.style.position = window.fgOriginalStylesSnapshot.body.position;
                     bodyElement.style.height = window.fgOriginalStylesSnapshot.body.height;
                 }
+
+                window.fgOriginalStylesSnapshot = null;
             }
-            window.fgOriginalStylesSnapshot = null;
 
             chrome.runtime.sendMessage({action: "intervention-unlocked"});
             host.remove();

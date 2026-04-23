@@ -943,13 +943,15 @@ async function uploadDataStorage() {
 // -------------------------------------------
 
 async function chosenIntervention() {
-  let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 1;
+  //let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 1;
+  let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 2;
+
   let objeto = {};
+
   if (TYPE_INTERVENTION === 1) {
     objeto = {
       type: TYPE_INTERVENTION,
-      duration: 10,
-      text: "Texto de prueba."
+      duration: 10
     };
   }
   else if (TYPE_INTERVENTION === 2) {
@@ -958,6 +960,13 @@ async function chosenIntervention() {
       text: "Texto de prueba."
     };
   }
+  else if (TYPE_INTERVENTION === 3) {
+    objeto = {
+      type: TYPE_INTERVENTION,
+      duration: 15
+    };
+  }
+
   return objeto;
 }
 async function isThereRestTimeLeft() {
@@ -984,16 +993,43 @@ async function getTodayIntervention() {
   return isToday ? { ...last_intervention, launch_date: launchDate } : null;
 }
 async function injectIntervention(tabId, interventionReLaunched = null) {
-
   let interventionData;
+  let isRelaunch = !!interventionReLaunched;
 
-  if (interventionReLaunched)
+  if (isRelaunch) {
     interventionData = interventionReLaunched;
-  else
+
+    if (interventionData.type === 3) {
+      let actual_date = new Date();
+      let release_date = new Date(interventionData.release_date);
+
+      if (release_date <= actual_date) {
+        await chrome.storage.local.set({
+          last_intervention: {
+            ...interventionData,
+            unlock_date: interventionData.release_date
+          }
+        });
+
+        return;
+      }
+    }
+  }
+  else {
+    // Es una intervención nueva
     interventionData = await chosenIntervention();
 
+    if (interventionData.type === 3) {
+      let launch_now = new Date();
+      let duration = (interventionData.duration || 0) * 1000;
+      interventionData.release_date = new Date(launch_now.getTime() + duration).toISOString();
+      interventionData.launch_date = launch_now.toISOString();
+    } else {
+      interventionData.launch_date = new Date().toISOString();
+    }
+  }
 
-  const { type, duration, text } = interventionData;
+  const { type, duration, text, release_date, launch_date } = interventionData;
 
   const files = {
     1: "intervention/component/level-one-intervention.js",
@@ -1018,9 +1054,14 @@ async function injectIntervention(tabId, interventionReLaunched = null) {
     await chrome.scripting.executeScript({
       target: { tabId },
       func: (data) => {
-        if (data.type === 1 && typeof initFocusIntervention === 'function') initFocusIntervention(data.duration);
-        if (data.type === 2 && typeof initLevelTwoIntervention === 'function') initLevelTwoIntervention(data.text);
-        if (data.type === 3 && typeof initLevelThreeIntervention === 'function') initLevelThreeIntervention(data.duration);
+        if (data.type === 1 && typeof initFocusIntervention === 'function')
+          initFocusIntervention(data.duration);
+        if (data.type === 2 && typeof initLevelTwoIntervention === 'function')
+          initLevelTwoIntervention(data.text);
+        if (data.type === 3 && typeof initLevelThreeIntervention === 'function') {
+          const remainingSecs = (new Date(data.release_date).getTime() - Date.now()) / 1000;
+          initLevelThreeIntervention(Math.max(0, remainingSecs));
+        }
       },
       args: [interventionData]
     });
@@ -1028,10 +1069,11 @@ async function injectIntervention(tabId, interventionReLaunched = null) {
     // 3. Actualizamos el estado en Storage
     await chrome.storage.local.set({
       last_intervention: {
-        launch_date: new Date().toISOString(),
+        launch_date: launch_date,
         type: type,
         duration: duration || null,
         text: text || null,
+        release_date: release_date || null,
         unlock_date: null // Se llenará cuando el usuario la desbloquee con éxito
       }
     });

@@ -1,105 +1,104 @@
-let focusGuardObserverThree = null;
-let preventActionThree = null;
-let countdownThree = null;
-let originalStylesSnapshot = null;
+{
+    window.fgObserver = window.fgObserver || null;
+    window.fgPreventAction = window.fgPreventAction || null;
+    window.fgCountdown = window.fgCountdown || null;
+    window.fgOriginalStylesSnapshot = window.fgOriginalStylesSnapshot || null;
 
-function initLevelThreeIntervention(durationSeconds = 60) {
-    const htmlElement = document.documentElement;
-    const bodyElement = document.body;
+    function initLevelThreeIntervention(durationSeconds = 60) {
+        const htmlElement = document.documentElement;
+        const bodyElement = document.body;
 
-    // 1. SANEAMIENTO PREVIO (Idempotencia)
-    if (focusGuardObserverThree) {
-        focusGuardObserverThree.disconnect();
-        focusGuardObserverThree = null;
-    }
-
-    if (preventActionThree) {
-        cleanupListeners();
-        preventActionThree = null;
-    }
-
-    if (countdownThree) {
-        clearInterval(countdownThree);
-        countdownThree = null;
-    }
-
-    if (originalStylesSnapshot) {
-        htmlElement.style.overflow = originalStylesSnapshot.html.overflow;
-        htmlElement.style.position = originalStylesSnapshot.html.position;
-        htmlElement.style.height = originalStylesSnapshot.html.height;
-
-        if (bodyElement) {
-            bodyElement.style.overflow = originalStylesSnapshot.body.overflow;
-            bodyElement.style.position = originalStylesSnapshot.body.position;
-            bodyElement.style.height = originalStylesSnapshot.body.height;
+        // 1. SANEAMIENTO PREVIO (Idempotencia)
+        if (window.fgObserver) {
+            window.fgObserver.disconnect();
+            window.fgObserver = null;
         }
 
-        originalStylesSnapshot = null;
-    }
+        if (window.fgPreventAction) {
+            cleanupListeners();
+            window.fgPreventAction = null;
+        }
 
-    const globalStyleElem = document.getElementById('focus-guard-global-style');
-    if (globalStyleElem) globalStyleElem.remove();
+        if (window.fgCountdown) {
+            clearInterval(window.fgCountdown);
+            window.fgCountdown = null;
+        }
 
-    const existing = document.getElementById('focus-guard-lvl3');
-    if (existing) existing.remove();
+        if (window.fgOriginalStylesSnapshot) {
+            htmlElement.style.overflow = window.fgOriginalStylesSnapshot.html.overflow;
+            htmlElement.style.position = window.fgOriginalStylesSnapshot.html.position;
+            htmlElement.style.height = window.fgOriginalStylesSnapshot.html.height;
+
+            if (bodyElement) {
+                bodyElement.style.overflow = window.fgOriginalStylesSnapshot.body.overflow;
+                bodyElement.style.position = window.fgOriginalStylesSnapshot.body.position;
+                bodyElement.style.height = window.fgOriginalStylesSnapshot.body.height;
+            }
+
+            window.fgOriginalStylesSnapshot = null;
+        }
+
+        const globalStyleElem = document.getElementById('focus-guard-global-style');
+        if (globalStyleElem) globalStyleElem.remove();
+
+        const existing = document.getElementById('focus-guard-container');
+        if (existing) existing.remove();
 
 
-    // 2. CALCULAR EL TIEMPO
-    const STORAGE_KEY = "focus_block_until";
-    const now = Date.now();
-    let blockedUntil = parseInt(localStorage.getItem(STORAGE_KEY)); // milisegundos
+        // 2. CALCULAR EL TIEMPO
+        const now = Date.now();
+        let blockedUntil = now + durationSeconds * 1000;
+        let remaining = Math.ceil((blockedUntil - now) / 1000); // segundos
 
-    if (!blockedUntil || blockedUntil < now) {
-        blockedUntil = now + durationSeconds * 1000;
-        localStorage.setItem(STORAGE_KEY, String(blockedUntil));
-    }
-
-    let remaining = Math.ceil((blockedUntil - now) / 1000); // segundos
-
-    if (remaining <= 0) {
-        localStorage.removeItem(STORAGE_KEY);
-        return;
-    }
+        if (remaining <= 0) {
+            closeIntervention();
+            return;
+        }
 
 
-    // 3. GUARDAR ESTILOS ORIGINALES Y CAMBIAR LOS ESTILOS
-    originalStylesSnapshot = {
-        html: {
-            overflow: htmlElement.style.overflow,
-            position: htmlElement.style.position,
-            height: htmlElement.style.height
-        },
-        body: bodyElement ? {
-            overflow: bodyElement.style.overflow,
-            position: bodyElement.style.position,
-            height: bodyElement.style.height
-        } : null
-    };
+        // 3. CAPTURA DE ESTADOS ORIGINALES
+        if (!window.fgOriginalStylesSnapshot) {
+            window.fgOriginalStylesSnapshot = {
+                html: {
+                    overflow: htmlElement.style.overflow,
+                    position: htmlElement.style.position,
+                    height: htmlElement.style.height
+                },
+                body: bodyElement ? {
+                    overflow: bodyElement.style.overflow,
+                    position: bodyElement.style.position,
+                    height: bodyElement.style.height
+                } : null
+            };
+        }
 
-    // Aplicar bloqueo de scroll y posición (Crítico para YouTube)
-    htmlElement.style.setProperty('overflow', 'hidden', 'important');
-    htmlElement.style.setProperty('position', 'relative', 'important');
-    htmlElement.style.setProperty('height', '100%', 'important');
+        // Aplicar bloqueo de scroll y posición (Crítico para YouTube)
+        const applyLock = () => {
+            htmlElement.style.setProperty('overflow', 'hidden', 'important');
+            htmlElement.style.setProperty('position', 'relative', 'important');
+            htmlElement.style.setProperty('height', '100%', 'important');
 
-    if (bodyElement) {
-        bodyElement.style.setProperty('overflow', 'hidden', 'important');
-        bodyElement.style.setProperty('position', 'relative', 'important');
-        bodyElement.style.setProperty('height', '100%', 'important');
-    }
+            if (bodyElement) {
+                bodyElement.style.setProperty('overflow', 'hidden', 'important');
+                bodyElement.style.setProperty('position', 'relative', 'important');
+                bodyElement.style.setProperty('height', '100%', 'important');
+            }
+        };
+        applyLock();
 
-    silenceTeasingMedia();
+        silenceTeasingMedia();
 
-    // 4. CONSTRUCCIÓN DE LA INTERVENCIÓN
-    const host = document.createElement('div');
-    host.id = 'focus-guard-lvl3';
-    
-    const mountPoint = document.body || document.documentElement;
-    mountPoint.appendChild(host);
+        // 4. CONSTRUCCIÓN DE LA INTERVENCIÓN
+        const host = document.createElement('div');
+        host.id = 'focus-guard-container';
 
-    const shadow = host.attachShadow({ mode: 'closed' });
+        const mountPoint = document.body || document.documentElement;
+        mountPoint.appendChild(host);
 
-    const style = document.createElement('style');
-    style.textContent = `
+        const shadow = host.attachShadow({mode: 'closed'});
+
+        const style = document.createElement('style');
+        style.textContent = `
         :host {
             position: fixed !important;
             top: 0 !important;
@@ -175,9 +174,9 @@ function initLevelThreeIntervention(durationSeconds = 60) {
         }
     `;
 
-    const container = document.createElement('div');
-    container.className = 'card';
-    container.innerHTML = `
+        const container = document.createElement('div');
+        container.className = 'card';
+        container.innerHTML = `
         <div class="title">Sitio bloqueado</div>
         <div class="subtitle">
             Has decidido enfocarte.<br>
@@ -190,17 +189,17 @@ function initLevelThreeIntervention(durationSeconds = 60) {
         </div>
     `;
 
-    shadow.appendChild(style);
-    shadow.appendChild(container);
+        shadow.appendChild(style);
+        shadow.appendChild(container);
 
-    // Se fuerza un reflow sincrónico. Esto garantiza que el motor de renderizado del navegador
-    // aplique los estilos críticos y las dimensiones del Shadow Host de forma inmediata
-    host.getBoundingClientRect();
+        // Se fuerza un reflow sincrónico. Esto garantiza que el motor de renderizado del navegador
+        // aplique los estilos críticos y las dimensiones del Shadow Host de forma inmediata
+        host.getBoundingClientRect();
 
-    const globalStyle = document.createElement('style');
-    globalStyle.id = 'focus-guard-global-style';
-    globalStyle.textContent = `
-        body > :not(#focus-guard-lvl3) {
+        const globalStyle = document.createElement('style');
+        globalStyle.id = 'focus-guard-global-style';
+        globalStyle.textContent = `
+        body > :not(#focus-guard-container) {
             opacity: 0 !important;
             visibility: hidden !important;
             pointer-events: none !important;
@@ -212,74 +211,75 @@ function initLevelThreeIntervention(durationSeconds = 60) {
             visibility: hidden !important;
         }
     `;
-    const head = document.head || document.getElementsByTagName('head')[0];
+        const head = document.head || document.getElementsByTagName('head')[0];
 
-    if (head) {
-        head.appendChild(globalStyle);
-    } else {
-        document.documentElement.appendChild(globalStyle);
-    }
-
-    // 5. GESTIÓN DE EVENTOS
-    preventActionThree = (event) => {
-        if (!event.composedPath().includes(host)) {
-            event.preventDefault();
-            event.stopPropagation();
-            event.stopImmediatePropagation();
+        if (head) {
+            head.appendChild(globalStyle);
+        } else {
+            document.documentElement.appendChild(globalStyle);
         }
-    };
 
-    document.addEventListener('click', preventActionThree, true);
-    document.addEventListener('keydown', preventActionThree, true);
-    document.addEventListener('scroll', preventActionThree, true);
-    window.addEventListener('scroll', preventActionThree, true);
 
-    let timerEl = container.querySelector('#timer');
-    
-    function updateTimer() {
-        const now = Date.now();
-        remaining = Math.ceil((blockedUntil - now) / 1000);
-        
-        if (remaining <= 0) {
-            localStorage.removeItem(STORAGE_KEY);
-            closeIntervention();
-            return;
-        }
-        
-        if (!timerEl || !document.contains(timerEl)) {
-            timerEl = container.querySelector('#timer');
-        }
-        
-        if (timerEl) {
-            timerEl.textContent = formatTime(remaining);
+        // 5. LÓGICA DE LA INTERVENCIÓN
+        let timerEl = container.querySelector('#timer');
 
-            timerEl.style.transform = 'scale(1.001)';
-            requestAnimationFrame(() => {
-                timerEl.style.transform = 'scale(1)';
-            });
+        function updateTimer() {
+            const now = Date.now();
+            remaining = Math.ceil((blockedUntil - now) / 1000);
+
+            if (remaining <= 0) {
+                closeIntervention();
+                return;
+            }
+
+            if (!timerEl || !document.contains(timerEl)) {
+                timerEl = container.querySelector('#timer');
+            }
+
+            if (timerEl) {
+                timerEl.textContent = formatTime(remaining);
+
+                timerEl.style.transform = 'scale(1.001)';
+                requestAnimationFrame(() => {
+                    timerEl.style.transform = 'scale(1)';
+                });
+            }
         }
-    }
-    
-    updateTimer();
-    
-    countdownThree = setInterval(() => {
         updateTimer();
-    }, 1000);
 
-    // 6. SISTEMA ANTI-BORRADO
-    focusGuardObserverThree = new MutationObserver((mutations) => {
-        if (!document.documentElement.contains(host) || !host.isConnected) {
-            console.log("Intento de evasión detectado (Nivel 3)");
-            if (preventActionThree) cleanupListeners();
-            initLevelThreeIntervention(remaining);
-            return;
-        }
-        
-        for (const mutation of mutations) {
-            if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
-                const target = mutation.target;
-                if (target === host || target === host.shadowRoot) {
-                    host.style.cssText = `
+        window.fgCountdown = setInterval(() => {
+            updateTimer();
+        }, 1000);
+
+
+        // 6. GESTIÓN DE EVENTOS
+        window.fgPreventAction = (event) => {
+            if (!event.composedPath().includes(host)) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+            }
+        };
+
+        document.addEventListener('click', window.fgPreventAction, true);
+        document.addEventListener('keydown', window.fgPreventAction, true);
+        document.addEventListener('scroll', window.fgPreventAction, true);
+        window.addEventListener('scroll', window.fgPreventAction, true);
+
+        // 7. SISTEMA ANTI-BORRADO
+        window.fgObserver = new MutationObserver((mutations) => {
+            if (!document.documentElement.contains(host) || !host.isConnected) {
+                console.log("Intento de evasión detectado (Nivel 3)");
+                if (window.fgPreventAction) cleanupListeners();
+                initLevelThreeIntervention(remaining);
+                return;
+            }
+
+            for (const mutation of mutations) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+                    const target = mutation.target;
+                    if (target === host || target === host.shadowRoot) {
+                        host.style.cssText = `
                         position: fixed !important;
                         top: 0 !important;
                         left: 0 !important;
@@ -292,78 +292,82 @@ function initLevelThreeIntervention(durationSeconds = 60) {
                         display: flex !important;
                         pointer-events: all !important;
                     `;
+                    }
                 }
             }
-        }
-    });
-
-    focusGuardObserverThree.observe(document.documentElement, { 
-        childList: true, 
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['style', 'class']
-    });
-
-
-    // 7. LÓGICA DE CIERRE Y LIMPIEZA
-    function cleanupListeners() {
-        document.removeEventListener('click', preventActionThree, true);
-        document.removeEventListener('keydown', preventActionThree, true);
-        document.removeEventListener('scroll', preventActionThree, true);
-        window.removeEventListener('scroll', preventActionThree, true);
-    }
-
-    function closeIntervention() {
-        if (countdownThree) {
-            clearInterval(countdownThree);
-            countdownThree = null;
-        }
-
-        if (focusGuardObserverThree) {
-            focusGuardObserverThree.disconnect();
-            focusGuardObserverThree = null;
-        }
-
-        if (preventActionThree) cleanupListeners();
-
-        preventActionThree = null;
-
-        htmlElement.style.overflow = originalStylesSnapshot.html.overflow;
-        htmlElement.style.position = originalStylesSnapshot.html.position;
-        htmlElement.style.height = originalStylesSnapshot.html.height;
-
-        if (bodyElement) {
-            bodyElement.style.overflow = originalStylesSnapshot.body.overflow;
-            bodyElement.style.position = originalStylesSnapshot.body.position;
-            bodyElement.style.height = originalStylesSnapshot.body.height;
-        }
-
-        originalStylesSnapshot = null;
-        
-        const globalStyleElem = document.getElementById('focus-guard-global-style');
-        if (globalStyleElem) globalStyleElem.remove();
-
-        chrome.runtime.sendMessage({ action: "intervention-unlocked" });
-
-        host.remove();
-    }
-
-
-    // FUNCIONES DE AYUDA
-    function formatTime(sec) {
-        const m = Math.floor(sec / 60).toString().padStart(2, '0');
-        const s = (sec % 60).toString().padStart(2, '0');
-        return `${m}:${s}`;
-    }
-    function silenceTeasingMedia() {
-        const videos = document.querySelectorAll('video');
-        videos.forEach(video => {
-            video.pause();
-            video.muted = true;
-            video.currentTime = 0;
         });
+
+        window.fgObserver.observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['style', 'class']
+        });
+
+
+        // 8. LÓGICA DE CIERRE Y LIMPIEZA
+        function cleanupListeners() {
+            document.removeEventListener('click', window.fgPreventAction, true);
+            document.removeEventListener('keydown', window.fgPreventAction, true);
+            document.removeEventListener('scroll', window.fgPreventAction, true);
+            window.removeEventListener('scroll', window.fgPreventAction, true);
+        }
+
+        function closeIntervention() {
+            if (window.fgCountdown) {
+                clearInterval(window.fgCountdown);
+                window.fgCountdown = null;
+            }
+
+            if (window.fgObserver) {
+                window.fgObserver.disconnect();
+                window.fgObserver = null;
+            }
+
+            if (window.fgPreventAction) {
+                cleanupListeners();
+                window.fgPreventAction = null;
+            }
+
+            if (window.fgOriginalStylesSnapshot) {
+                htmlElement.style.overflow = window.fgOriginalStylesSnapshot.html.overflow;
+                htmlElement.style.position = window.fgOriginalStylesSnapshot.html.position;
+                htmlElement.style.height = window.fgOriginalStylesSnapshot.html.height;
+
+                if (bodyElement) {
+                    bodyElement.style.overflow = window.fgOriginalStylesSnapshot.body.overflow;
+                    bodyElement.style.position = window.fgOriginalStylesSnapshot.body.position;
+                    bodyElement.style.height = window.fgOriginalStylesSnapshot.body.height;
+                }
+
+                window.fgOriginalStylesSnapshot = null;
+            }
+
+            const globalStyleElem = document.getElementById('focus-guard-global-style');
+            if (globalStyleElem) globalStyleElem.remove();
+
+            chrome.runtime.sendMessage({action: "intervention-unlocked"});
+            host.remove();
+        }
+
+
+        // FUNCIONES DE AYUDA
+        function formatTime(sec) {
+            const m = Math.floor(sec / 60).toString().padStart(2, '0');
+            const s = (sec % 60).toString().padStart(2, '0');
+            return `${m}:${s}`;
+        }
+
+        function silenceTeasingMedia() {
+            const videos = document.querySelectorAll('video');
+            videos.forEach(video => {
+                video.pause();
+                video.muted = true;
+                video.currentTime = 0;
+            });
+        }
     }
-}
 
 // Iniciar bloqueo
 // initLevelThreeIntervention(60);
+}
