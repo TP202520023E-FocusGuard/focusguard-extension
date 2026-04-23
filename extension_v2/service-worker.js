@@ -1,5 +1,5 @@
 const DEFAULT_ORIGIN = "default";
-const TIME_BETWEEN_INTERVENTIONS = 1 * 10 * 1000; // 20 min en ms
+const TIME_BETWEEN_INTERVENTIONS = 1 * 30 * 1000; // 20 min en ms
 //let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 1;
 //let TYPE_INTERVENTION = 1;
 let timerContent = null;
@@ -944,7 +944,9 @@ async function uploadDataStorage() {
 
 async function chosenIntervention() {
   //let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 1;
-  let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 2;
+  //let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 2;
+  //let TYPE_INTERVENTION = Math.floor(Math.random() * 3) + 1;
+  let TYPE_INTERVENTION = 3;
 
   let objeto = {};
 
@@ -990,7 +992,7 @@ async function getTodayIntervention() {
       launchDate.getMonth() === today.getMonth() &&
       launchDate.getFullYear() === today.getFullYear();
 
-  return isToday ? { ...last_intervention, launch_date: launchDate } : null;
+  return isToday ? last_intervention : null;
 }
 async function injectIntervention(tabId, interventionReLaunched = null) {
   let interventionData;
@@ -1004,10 +1006,18 @@ async function injectIntervention(tabId, interventionReLaunched = null) {
       let release_date = new Date(interventionData.release_date);
 
       if (release_date <= actual_date) {
+        let aux = {
+          ...interventionData,
+          unlock_date: release_date.toISOString()
+        };
+
+        console.log("Ya paso el tiempo, por lo que se da por desbloqueda la intervención");
+        console.log(JSON.stringify(aux));
+
         await chrome.storage.local.set({
           last_intervention: {
             ...interventionData,
-            unlock_date: interventionData.release_date
+            unlock_date: release_date.toISOString()
           }
         });
 
@@ -1067,6 +1077,17 @@ async function injectIntervention(tabId, interventionReLaunched = null) {
     });
 
     // 3. Actualizamos el estado en Storage
+    let aux = {
+        launch_date: launch_date,
+        type: type,
+        duration: duration || null,
+        text: text || null,
+        release_date: release_date || null,
+        unlock_date: null // Se llenará cuando el usuario la desbloquee con éxito
+      };
+
+    console.log(JSON.stringify(aux));
+
     await chrome.storage.local.set({
       last_intervention: {
         launch_date: launch_date,
@@ -1110,26 +1131,6 @@ async function shouldLaunchIntervention(tabId, interventions_activated) {
     console.log("Anti-evasión: Re-lanzando intervención no terminada.");
     await injectIntervention(tabId, intervention);
   }
-
-  /*
-  if (timePassedSinceLaunch >= TIME_BETWEEN_INTERVENTIONS) {
-    // Ya pasaron 20 min, lanzamos una nueva
-    await injectIntervention(tabId, TYPE_INTERVENTION, 15);
-  }
-  else {
-    // No han pasado 20 min, verificar si eludió (Paso 4)
-    const wasUnlocked = !!intervention.unlock_date;
-
-    if (!wasUnlocked) {
-      // No la desbloqueó. ¿Sigue en el periodo de gracia de 5 min? (Paso 5)
-      if (timePassedSinceLaunch < TIME_OF_GRACE) {
-        // RE-LANZAR la misma intervención (Anti-evasión)
-        console.log("Anti-evasión: Re-lanzando intervención no terminada.");
-        await injectIntervention(tabId, intervention.type, intervention.duration);
-      }
-    }
-  }
-  */
 
 }
 
@@ -1456,13 +1457,15 @@ async function checkAlarmState() {
 }
 async function handleUnlock() {
   const { last_intervention } = await chrome.storage.local.get("last_intervention");
-  if (last_intervention) {
+  if (last_intervention && last_intervention.unlock_date === null) {
     const updatedIntervention = {
       ...last_intervention,
       unlock_date: new Date().toISOString() // Sellamos el éxito
     };
+
     await chrome.storage.local.set({ last_intervention: updatedIntervention });
-    console.log("Estado de FocusGuard: Intervención completada y registrada.");
+    console.log("Intervención Desbloqueada");
+    console.log(JSON.stringify(updatedIntervention));
   }
 }
 async function init() {
