@@ -1,7 +1,7 @@
 const DEFAULT_ORIGIN = "default";
-const TIME_BETWEEN_INTERVENTIONS = 1 * 60 * 1000; // 20 min en ms
+const TIME_BETWEEN_INTERVENTIONS = 1 * 10 * 1000; // 20 min en ms
 //let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 1;
-let TYPE_INTERVENTION = 1;
+//let TYPE_INTERVENTION = 1;
 let timerContent = null;
 let focusTimeout = null;
 
@@ -942,6 +942,24 @@ async function uploadDataStorage() {
 //           FUNCIONES OPERATIVAS
 // -------------------------------------------
 
+async function chosenIntervention() {
+  let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 1;
+  let objeto = {};
+  if (TYPE_INTERVENTION === 1) {
+    objeto = {
+      type: TYPE_INTERVENTION,
+      duration: 10,
+      text: "Texto de prueba."
+    };
+  }
+  else if (TYPE_INTERVENTION === 2) {
+    objeto = {
+      type: TYPE_INTERVENTION,
+      text: "Texto de prueba."
+    };
+  }
+  return objeto;
+}
 async function isThereRestTimeLeft() {
   const data = await chrome.storage.local.get(["assigned_rest_time", "accumulated_leisure_time"]);
   const assigned = (data.assigned_rest_time || 0) * 60; // Convertir a segundos
@@ -965,29 +983,46 @@ async function getTodayIntervention() {
 
   return isToday ? { ...last_intervention, launch_date: launchDate } : null;
 }
-async function injectIntervention(tabId, type, duration) {
+async function injectIntervention(tabId, interventionReLaunched = null) {
+
+  let interventionData;
+
+  if (interventionReLaunched)
+    interventionData = interventionReLaunched;
+  else
+    interventionData = await chosenIntervention();
+
+
+  const { type, duration, text } = interventionData;
+
   const files = {
     1: "intervention/component/level-one-intervention.js",
     2: "intervention/component/level-two-intervention.js",
     3: "intervention/component/level-three-intervention.js"
   };
 
+  const scriptFile = files[type];
+  if (!scriptFile) {
+    console.error(`Tipo de intervención ${type} no reconocido.`);
+    return;
+  }
+
   try {
     // 1. Inyectamos el archivo de definición
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: [files[type]]
+      files: [scriptFile]
     });
 
     // 2. Ejecutamos la inicialización
     await chrome.scripting.executeScript({
       target: { tabId },
-      func: (t, d) => {
-        if (t === 1 && typeof initFocusIntervention === 'function') initFocusIntervention(d);
-        if (t === 2 && typeof initLevelTwoIntervention === 'function') initLevelTwoIntervention();
-        if (t === 3 && typeof initLevelThreeIntervention === 'function') initLevelThreeIntervention(d);
+      func: (data) => {
+        if (data.type === 1 && typeof initFocusIntervention === 'function') initFocusIntervention(data.duration);
+        if (data.type === 2 && typeof initLevelTwoIntervention === 'function') initLevelTwoIntervention(data.text);
+        if (data.type === 3 && typeof initLevelThreeIntervention === 'function') initLevelThreeIntervention(data.duration);
       },
-      args: [type, duration]
+      args: [interventionData]
     });
 
     // 3. Actualizamos el estado en Storage
@@ -995,7 +1030,8 @@ async function injectIntervention(tabId, type, duration) {
       last_intervention: {
         launch_date: new Date().toISOString(),
         type: type,
-        duration: duration,
+        duration: duration || null,
+        text: text || null,
         unlock_date: null // Se llenará cuando el usuario la desbloquee con éxito
       }
     });
@@ -1013,7 +1049,7 @@ async function shouldLaunchIntervention(tabId, interventions_activated) {
   // Si no hay intervención hoy, lanzamos sin problema
   if (!intervention) {
     console.log("PRIMERA INTERVENCIÓN LANZADA");
-    await injectIntervention(tabId, TYPE_INTERVENTION, 15);
+    await injectIntervention(tabId);
     return;
   }
 
@@ -1026,11 +1062,11 @@ async function shouldLaunchIntervention(tabId, interventions_activated) {
 
     if (timePassedSinceUnlock >= TIME_BETWEEN_INTERVENTIONS) {
       console.log("INTERVENCIÓN LANZADA");
-      await injectIntervention(tabId, TYPE_INTERVENTION, 15);
+      await injectIntervention(tabId);
     }
   } else {
     console.log("Anti-evasión: Re-lanzando intervención no terminada.");
-    await injectIntervention(tabId, intervention.type, intervention.duration);
+    await injectIntervention(tabId, intervention);
   }
 
   /*

@@ -1,77 +1,93 @@
-let focusGuardObserverTwo = null;
-let preventActionTwo = null;
-let originalStylesSnapshotLvl2 = null;
+{
+    window.fgObserver = window.fgObserver || null;
+    window.fgPreventAction = window.fgPreventAction || null;
+    window.fgCountdown = window.fgCountdown || null;
+    window.fgOriginalStylesSnapshot = window.fgOriginalStylesSnapshot || null;
 
-function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un breve descanso, pero sé que el progreso es la clave.") {
-    const htmlElement = document.documentElement;
-    const bodyElement = document.body;
+    /*
+    let focusGuardObserverTwo = null;
+    let preventActionTwo = null;
+    let originalStylesSnapshotLvl2 = null;
+    */
+    function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un breve descanso, pero sé que el progreso es la clave.") {
+        const htmlElement = document.documentElement;
+        const bodyElement = document.body;
 
-    // 1. SANEAMIENTO PREVIO (Idempotencia)
-    if (focusGuardObserverTwo) {
-        focusGuardObserverTwo.disconnect();
-        focusGuardObserverTwo = null;
-    }
-
-    if (preventActionTwo) {
-        cleanupListeners();
-        preventActionTwo = null;
-    }
-
-    if (originalStylesSnapshotLvl2) {
-        htmlElement.style.overflow = originalStylesSnapshotLvl2.html.overflow;
-        htmlElement.style.position = originalStylesSnapshotLvl2.html.position;
-        htmlElement.style.height = originalStylesSnapshotLvl2.html.height;
-
-        if (bodyElement) {
-            bodyElement.style.overflow = originalStylesSnapshotLvl2.body.overflow;
-            bodyElement.style.position = originalStylesSnapshotLvl2.body.position;
-            bodyElement.style.height = originalStylesSnapshotLvl2.body.height;
+        // 1. SANEAMIENTO PREVIO (Idempotencia)
+        if (window.fgObserver) {
+            window.fgObserver.disconnect();
+            window.fgObserver = null;
         }
-        originalStylesSnapshotLvl2 = null;
-    }
 
-    const existing = document.getElementById('focus-guard-lvl2');
-    if (existing) existing.remove();
+        if (window.fgPreventAction) {
+            cleanupListeners();
+            window.fgPreventAction = null;
+        }
 
+        if (window.fgCountdown) {
+            clearInterval(window.fgCountdown);
+            window.fgCountdown = null;
+        }
 
-    // 2. CAPTURA DE ESTADOS ORIGINALES
-    originalStylesSnapshotLvl2 = {
-        html: {
-            overflow: htmlElement.style.overflow,
-            position: htmlElement.style.position,
-            height: htmlElement.style.height
-        },
-        body: bodyElement ? {
-            overflow: bodyElement.style.overflow,
-            position: bodyElement.style.position,
-            height: bodyElement.style.height
-        } : null
-    };
+        if (window.fgOriginalStylesSnapshot) {
+            htmlElement.style.overflow = window.fgOriginalStylesSnapshot.html.overflow;
+            htmlElement.style.position = window.fgOriginalStylesSnapshot.html.position;
+            htmlElement.style.height = window.fgOriginalStylesSnapshot.html.height;
 
-    htmlElement.style.setProperty('overflow', 'hidden', 'important');
-    htmlElement.style.setProperty('position', 'relative', 'important');
-    htmlElement.style.setProperty('height', '100%', 'important');
+            if (bodyElement) {
+                bodyElement.style.overflow = window.fgOriginalStylesSnapshot.body.overflow;
+                bodyElement.style.position = window.fgOriginalStylesSnapshot.body.position;
+                bodyElement.style.height = window.fgOriginalStylesSnapshot.body.height;
+            }
+            window.fgOriginalStylesSnapshot = null;
+        }
 
-    if (bodyElement) {
-        bodyElement.style.setProperty('overflow', 'hidden', 'important');
-        bodyElement.style.setProperty('position', 'relative', 'important');
-        bodyElement.style.setProperty('height', '100%', 'important');
-    }
-
-    silenceTeasingMedia();
+        const existing = document.getElementById('focus-guard-container');
+        if (existing) existing.remove();
 
 
-    // 3. CONSTRUCCIÓN DE LA INTERVENCIÓN
-    const host = document.createElement('div');
-    host.id = 'focus-guard-lvl2';
+        // 2. CAPTURA DE ESTADOS ORIGINALES
+        if (!window.fgOriginalStylesSnapshot) {
+            window.fgOriginalStylesSnapshot = {
+                html: {
+                    overflow: htmlElement.style.overflow,
+                    position: htmlElement.style.position,
+                    height: htmlElement.style.height
+                },
+                body: bodyElement ? {
+                    overflow: bodyElement.style.overflow,
+                    position: bodyElement.style.position,
+                    height: bodyElement.style.height
+                } : null
+            };
+        }
 
-    const mountPoint = document.body || document.documentElement;
-    mountPoint.appendChild(host);
+        const applyLock = () => {
+            htmlElement.style.setProperty('overflow', 'hidden', 'important');
+            htmlElement.style.setProperty('position', 'relative', 'important');
+            htmlElement.style.setProperty('height', '100%', 'important');
 
-    const shadow = host.attachShadow({ mode: 'closed' });
+            if (bodyElement) {
+                bodyElement.style.setProperty('overflow', 'hidden', 'important');
+                bodyElement.style.setProperty('position', 'relative', 'important');
+                bodyElement.style.setProperty('height', '100%', 'important');
+            }
+        };
+        applyLock();
+        silenceTeasingMedia();
 
-    const style = document.createElement('style');
-    style.textContent = `
+
+        // 3. CONSTRUCCIÓN DE LA INTERVENCIÓN
+        const host = document.createElement('div');
+        host.id = 'focus-guard-container';
+
+        const mountPoint = document.body || document.documentElement;
+        mountPoint.appendChild(host);
+
+        const shadow = host.attachShadow({mode: 'closed'});
+
+        const style = document.createElement('style');
+        style.textContent = `
         :host {
             position: fixed;
             top: 0; left: 0;
@@ -173,9 +189,9 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
         }
     `;
 
-    const container = document.createElement('div');
-    container.className = 'card';
-    container.innerHTML = `
+        const container = document.createElement('div');
+        container.className = 'card';
+        container.innerHTML = `
         <h2>Validación de Intención</h2>
         <div class="instruction" id="target">${targetText}</div>
         <textarea id="input" placeholder="Escribe el texto de arriba para desbloquear..."></textarea>
@@ -186,151 +202,152 @@ function initLevelTwoIntervention(targetText = "Siento la tentación de tomar un
         </div>
     `;
 
-    shadow.appendChild(style);
-    shadow.appendChild(container);
+        shadow.appendChild(style);
+        shadow.appendChild(container);
 
-    const input = shadow.getElementById('input');
-    const unlockBtn = shadow.getElementById('unlock');
-    const progressInner = shadow.getElementById('progress');
-    const cancelBtn = shadow.getElementById('cancel');
+        const input = shadow.getElementById('input');
+        const unlockBtn = shadow.getElementById('unlock');
+        const progressInner = shadow.getElementById('progress');
+        const cancelBtn = shadow.getElementById('cancel');
 
 
-    // 4. GESTIÓN DE EVENTOS
-    preventActionTwo = (event) => {
-        if (!event.composedPath().includes(host)) {
-            event.preventDefault();
-            event.stopPropagation();
-            event.stopImmediatePropagation();
-        }
-    };
+        // 4. GESTIÓN DE EVENTOS
+        window.fgPreventAction = (event) => {
+            if (!event.composedPath().includes(host)) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+            }
+        };
 
-    // Listeners globales
-    document.addEventListener('click', preventActionTwo, true);
-    document.addEventListener('keydown', preventActionTwo, true);
-    document.addEventListener('scroll', preventActionTwo, true);
-    window.addEventListener('scroll', preventActionTwo, true);
+        // Listeners globales
+        document.addEventListener('click', window.fgPreventAction, true);
+        document.addEventListener('keydown', window.fgPreventAction, true);
+        document.addEventListener('scroll', window.fgPreventAction, true);
+        window.addEventListener('scroll', window.fgPreventAction, true);
 
-    const handleKeyEvents = (e) => {
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-    };
+        const handleKeyEvents = (e) => {
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+        };
 
-    // Listeners dentro de la intervención
-    input.addEventListener('keydown', handleKeyEvents, true);
-    input.addEventListener('keyup', handleKeyEvents, true);
+        // Listeners dentro de la intervención
+        input.addEventListener('keydown', handleKeyEvents, true);
+        input.addEventListener('keyup', handleKeyEvents, true);
 
-    input.addEventListener('input', (e) => {
-        e.stopPropagation();
-        const val = input.value;
-        if (targetText.startsWith(val)) {
-            const percent = (val.length / targetText.length) * 100;
-            progressInner.style.width = `${percent}%`;
-            progressInner.style.background = '#3b82f6';
-            
-            if (val === targetText) {
-                unlockBtn.classList.add('ready');
-                progressInner.style.background = '#10b981';
+        input.addEventListener('input', (e) => {
+            e.stopPropagation();
+            const val = input.value;
+            if (targetText.startsWith(val)) {
+                const percent = (val.length / targetText.length) * 100;
+                progressInner.style.width = `${percent}%`;
+                progressInner.style.background = '#3b82f6';
+
+                if (val === targetText) {
+                    unlockBtn.classList.add('ready');
+                    progressInner.style.background = '#10b981';
+                } else {
+                    unlockBtn.classList.remove('ready');
+                }
             } else {
+                progressInner.style.background = '#ef4444';
                 unlockBtn.classList.remove('ready');
             }
-        } else {
-            progressInner.style.background = '#ef4444';
-            unlockBtn.classList.remove('ready');
-        }
-    });
+        });
 
-    input.onpaste = (e) => e.preventDefault();
-    shadow.querySelector('.card').onclick = () => input.focus();
+        input.onpaste = (e) => e.preventDefault();
+        shadow.querySelector('.card').onclick = () => input.focus();
 
 
-    // 5. SISTEMA ANTI-BORRADO
-    focusGuardObserverTwo = new MutationObserver((mutations) => {
-        if (!document.documentElement.contains(host) || !host.isConnected) {
-            console.log("Evasión detectada en Lvl 2! Reiniciando...");
-            if(preventActionTwo) cleanupListeners();
-            initLevelTwoIntervention(targetText);
-            return;
-        }
+        // 5. SISTEMA ANTI-BORRADO
+        window.fgObserver = new MutationObserver((mutations) => {
+            if (!document.documentElement.contains(host) || !host.isConnected) {
+                console.log("Evasión detectada en Lvl 2! Reiniciando...");
+                if (window.fgPreventAction) cleanupListeners();
+                initLevelTwoIntervention(targetText);
+                return;
+            }
 
-        for (const mutation of mutations) {
-            if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
-                if (mutation.target === host) {
-                    host.style.cssText = `
+            for (const mutation of mutations) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+                    if (mutation.target === host) {
+                        host.style.cssText = `
                         position: fixed !important;
                         top: 0 !important; left: 0 !important;
                         width: 100vw !important; height: 100vh !important;
                         z-index: 2147483647 !important;
                         display: flex !important;
                     `;
+                    }
                 }
             }
-        }
-    });
-    focusGuardObserverTwo.observe(document.documentElement, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['style', 'class']
-    });
-
-
-    // 6. CIERRE Y LIMPIEZA
-    function cleanupListeners() {
-        document.removeEventListener('click', preventActionTwo, true);
-        document.removeEventListener('keydown', preventActionTwo, true);
-        document.removeEventListener('scroll', preventActionTwo, true);
-        window.removeEventListener('scroll', preventActionTwo, true);
-    }
-
-    const closeIntervention = () => {
-        if (focusGuardObserverTwo) {
-            focusGuardObserverTwo.disconnect();
-            focusGuardObserverTwo = null;
-        }
-
-        if(preventActionTwo) cleanupListeners();
-        preventActionTwo = null;
-
-        if (originalStylesSnapshotLvl2) {
-            htmlElement.style.overflow = originalStylesSnapshotLvl2.html.overflow;
-            htmlElement.style.position = originalStylesSnapshotLvl2.html.position;
-            htmlElement.style.height = originalStylesSnapshotLvl2.html.height;
-            if (bodyElement && originalStylesSnapshotLvl2.body) {
-                bodyElement.style.overflow = originalStylesSnapshotLvl2.body.overflow;
-                bodyElement.style.position = originalStylesSnapshotLvl2.body.position;
-                bodyElement.style.height = originalStylesSnapshotLvl2.body.height;
-            }
-        }
-        originalStylesSnapshotLvl2 = null;
-
-        chrome.runtime.sendMessage({ action: "intervention-unlocked" });
-
-        host.remove();
-    };
-
-    // 7. ACCIONES DE USUARIO
-    unlockBtn.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        closeIntervention();
-    };
-
-    cancelBtn.onclick = () => {
-        window.location.href = "https://www.google.com";
-    };
-    
-    setTimeout(() => input.focus(), 500);
-
-
-    function silenceTeasingMedia() {
-        const videos = document.querySelectorAll('video');
-        videos.forEach(video => {
-            video.pause();
-            video.muted = true;
-            video.currentTime = 0;
         });
-    }
-}
+        window.fgObserver.observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['style', 'class']
+        });
 
-// Ahora puedes llamarla con cualquier texto desde tu backend
-initLevelTwoIntervention("Escribe esta frase personalizada para continuar.");
+
+        // 6. CIERRE Y LIMPIEZA
+        function cleanupListeners() {
+            document.removeEventListener('click', window.fgPreventAction, true);
+            document.removeEventListener('keydown', window.fgPreventAction, true);
+            document.removeEventListener('scroll', window.fgPreventAction, true);
+            window.removeEventListener('scroll', window.fgPreventAction, true);
+        }
+
+        const closeIntervention = () => {
+            if (window.fgObserver) {
+                window.fgObserver.disconnect();
+                window.fgObserver = null;
+            }
+
+            if (window.fgPreventAction) cleanupListeners();
+            window.fgPreventAction = null;
+
+            if (window.fgOriginalStylesSnapshot) {
+                htmlElement.style.overflow = window.fgOriginalStylesSnapshot.html.overflow;
+                htmlElement.style.position = window.fgOriginalStylesSnapshot.html.position;
+                htmlElement.style.height = window.fgOriginalStylesSnapshot.html.height;
+                if (bodyElement && window.fgOriginalStylesSnapshot.body) {
+                    bodyElement.style.overflow = window.fgOriginalStylesSnapshot.body.overflow;
+                    bodyElement.style.position = window.fgOriginalStylesSnapshot.body.position;
+                    bodyElement.style.height = window.fgOriginalStylesSnapshot.body.height;
+                }
+            }
+            window.fgOriginalStylesSnapshot = null;
+
+            chrome.runtime.sendMessage({action: "intervention-unlocked"});
+
+            host.remove();
+        };
+
+        // 7. ACCIONES DE USUARIO
+        unlockBtn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeIntervention();
+        };
+
+        cancelBtn.onclick = () => {
+            window.location.href = "https://www.google.com";
+        };
+
+        setTimeout(() => input.focus(), 500);
+
+
+        function silenceTeasingMedia() {
+            const videos = document.querySelectorAll('video');
+            videos.forEach(video => {
+                video.pause();
+                video.muted = true;
+                video.currentTime = 0;
+            });
+        }
+    }
+
+    // Ahora puedes llamarla con cualquier texto desde tu backend
+    //initLevelTwoIntervention("Escribe esta frase personalizada para continuar.");
+}

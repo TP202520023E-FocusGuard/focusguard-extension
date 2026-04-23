@@ -2,48 +2,42 @@
 {
     // 1. DEFINICIÓN DE VARIABLES DE ESTADO (Usando window para persistencia)
     // Las variables definidas de forma global toman el mando y limpian los datos guardados del mismo script anterior
-    /*
-    let focusGuardObserverOne = null;
-    let preventActionOne = null;
-    let countdownOne = null;
-    let originalStylesSnapshotOne = null;
-    */
-    window.focusGuardObserverOne = window.focusGuardObserverOne || null;
-    window.preventActionOne = window.preventActionOne || null;
-    window.countdownOne = window.countdownOne || null;
-    window.originalStylesSnapshotOne = window.originalStylesSnapshotOne || null;
+    window.fgObserver = window.fgObserver || null;
+    window.fgPreventAction = window.fgPreventAction || null;
+    window.fgCountdown = window.fgCountdown || null;
+    window.fgOriginalStylesSnapshot = window.fgOriginalStylesSnapshot || null;
 
     function initFocusIntervention(seconds = 50) {
         const htmlElement = document.documentElement;
         const bodyElement = document.body;
 
         // 1. SANEAMIENTO PREVIO (Idempotencia)
-        if (window.focusGuardObserverOne) {
-            window.focusGuardObserverOne.disconnect();
-            window.focusGuardObserverOne = null;
+        if (window.fgObserver) {
+            window.fgObserver.disconnect();
+            window.fgObserver = null;
         }
 
-        if (window.preventActionOne) {
+        if (window.fgPreventAction) {
             cleanupListeners();
-            window.preventActionOne = null;
+            window.fgPreventAction = null;
         }
 
-        if (window.countdownOne) {
-            clearInterval(window.countdownOne);
-            window.countdownOne = null;
+        if (window.fgCountdown) {
+            clearInterval(window.fgCountdown);
+            window.fgCountdown = null;
         }
 
-        if (window.originalStylesSnapshotOne) {
-            htmlElement.style.overflow = window.originalStylesSnapshotOne.html.overflow;
-            htmlElement.style.position = window.originalStylesSnapshotOne.html.position;
-            htmlElement.style.height = window.originalStylesSnapshotOne.html.height;
+        if (window.fgOriginalStylesSnapshot) {
+            htmlElement.style.overflow = window.fgOriginalStylesSnapshot.html.overflow;
+            htmlElement.style.position = window.fgOriginalStylesSnapshot.html.position;
+            htmlElement.style.height = window.fgOriginalStylesSnapshot.html.height;
 
             if (bodyElement) {
-                bodyElement.style.overflow = window.originalStylesSnapshotOne.body.overflow;
-                bodyElement.style.position = window.originalStylesSnapshotOne.body.position;
-                bodyElement.style.height = window.originalStylesSnapshotOne.body.height;
+                bodyElement.style.overflow = window.fgOriginalStylesSnapshot.body.overflow;
+                bodyElement.style.position = window.fgOriginalStylesSnapshot.body.position;
+                bodyElement.style.height = window.fgOriginalStylesSnapshot.body.height;
             }
-            window.originalStylesSnapshotOne = null;
+            window.fgOriginalStylesSnapshot = null;
         }
 
         const existing = document.getElementById('focus-guard-container');
@@ -51,29 +45,34 @@
 
 
         // 2. CAPTURA DE ESTADOS ORIGINALES
-        window.originalStylesSnapshotOne = {
-            html: {
-                overflow: htmlElement.style.overflow,
-                position: htmlElement.style.position,
-                height: htmlElement.style.height
-            },
-            body: bodyElement ? {
-                overflow: bodyElement.style.overflow,
-                position: bodyElement.style.position,
-                height: bodyElement.style.height
-            } : null
-        };
+        if (!window.fgOriginalStylesSnapshot) {
+            window.fgOriginalStylesSnapshot = {
+                html: {
+                    overflow: htmlElement.style.overflow,
+                    position: htmlElement.style.position,
+                    height: htmlElement.style.height
+                },
+                body: bodyElement ? {
+                    overflow: bodyElement.style.overflow,
+                    position: bodyElement.style.position,
+                    height: bodyElement.style.height
+                } : null
+            };
+        }
 
         // Aplicar bloqueo de scroll y posición (Crítico para YouTube)
-        htmlElement.style.setProperty('overflow', 'hidden', 'important');
-        htmlElement.style.setProperty('position', 'relative', 'important');
-        htmlElement.style.setProperty('height', '100%', 'important');
+        const applyLock = () => {
+            htmlElement.style.setProperty('overflow', 'hidden', 'important');
+            htmlElement.style.setProperty('position', 'relative', 'important');
+            htmlElement.style.setProperty('height', '100%', 'important');
 
-        if (bodyElement) {
-            bodyElement.style.setProperty('overflow', 'hidden', 'important');
-            bodyElement.style.setProperty('position', 'relative', 'important');
-            bodyElement.style.setProperty('height', '100%', 'important');
-        }
+            if (bodyElement) {
+                bodyElement.style.setProperty('overflow', 'hidden', 'important');
+                bodyElement.style.setProperty('position', 'relative', 'important');
+                bodyElement.style.setProperty('height', '100%', 'important');
+            }
+        };
+        applyLock();
 
         silenceTeasingMedia();
 
@@ -247,13 +246,13 @@
             progressFill.style.strokeDashoffset = Math.max(0, circumference - progress);
         };
 
-        window.countdownOne = setInterval(() => {
+        window.fgCountdown = setInterval(() => {
             remaining--;
             timerText.innerText = remaining;
             updateProgress();
 
             if (remaining <= 0) {
-                clearInterval(window.countdownOne);
+                clearInterval(window.fgCountdown);
                 btn.classList.add('active');
                 btn.innerText = 'Continuar';
             }
@@ -266,7 +265,7 @@
 
         // 5. GESTIÓN DE EVENTOS
         // Bloquear interacción con el resto de la página
-        window.preventActionOne = (event) => {
+        window.fgPreventAction = (event) => {
             // composedPath() devuelve un arreglo con todos los nodos por los que pasó el evento [host, body, html, document, window].
             if (!event.composedPath().includes(host)) {
                 event.preventDefault(); // Cancela el evento
@@ -276,18 +275,18 @@
         };
 
         // Atrapa el clic o la tecla antes de que lleguen a la página web.
-        document.addEventListener('click', window.preventActionOne, true);
-        document.addEventListener('keydown', window.preventActionOne, true);
-        document.addEventListener('scroll', window.preventActionOne, true);
-        window.addEventListener('scroll', window.preventActionOne, true);
+        document.addEventListener('click', window.fgPreventAction, true);
+        document.addEventListener('keydown', window.fgPreventAction, true);
+        document.addEventListener('scroll', window.fgPreventAction, true);
+        window.addEventListener('scroll', window.fgPreventAction, true);
 
 
         // 6. SISTEMA ANTI-BORRADO
-        window.focusGuardObserverOne = new MutationObserver((mutations) => {
+        window.fgObserver = new MutationObserver((mutations) => {
             // Validación de existencia física
             if (!document.documentElement.contains(host) || !host.isConnected) {
                 console.log("¡Intento de evasión detectado! Reiniciando intervención...");
-                if (window.preventActionOne) cleanupListeners();
+                if (window.fgPreventAction) cleanupListeners();
                 initFocusIntervention(remaining > 0 ? remaining : 5);
                 return;
             }
@@ -309,7 +308,7 @@
             }
         });
 
-        window.focusGuardObserverOne.observe(document.documentElement, {
+        window.fgObserver.observe(document.documentElement, {
             childList: true,
             subtree: true,
             attributes: true,
@@ -320,37 +319,38 @@
         // 7. CIERRE Y LIMPIEZA
         // Liberar eventos al cerrar
         function cleanupListeners() {
-            document.removeEventListener('click', window.preventActionOne, true);
-            document.removeEventListener('keydown', window.preventActionOne, true);
-            document.removeEventListener('scroll', window.preventActionOne, true);
-            window.removeEventListener('scroll', window.preventActionOne, true);
+            document.removeEventListener('click', window.fgPreventAction, true);
+            document.removeEventListener('keydown', window.fgPreventAction, true);
+            document.removeEventListener('scroll', window.fgPreventAction, true);
+            window.removeEventListener('scroll', window.fgPreventAction, true);
         }
 
         const closeIntervention = () => {
-            if (window.countdownOne) {
-                clearInterval(window.countdownOne);
-                window.countdownOne = null;
+            if (window.fgCountdown) {
+                clearInterval(window.fgCountdown);
+                window.fgCountdown = null;
             }
 
-            if (window.focusGuardObserverOne) {
-                window.focusGuardObserverOne.disconnect();
-                window.focusGuardObserverOne = null;
+            if (window.fgObserver) {
+                window.fgObserver.disconnect();
+                window.fgObserver = null;
             }
 
-            if (window.preventActionOne) cleanupListeners();
-            window.preventActionOne = null;
+            if (window.fgPreventAction) cleanupListeners();
+            window.fgPreventAction = null;
 
             // Restauración Snapshot
-            if (window.originalStylesSnapshotOne) {
-                htmlElement.style.overflow = window.originalStylesSnapshotOne.html.overflow;
-                htmlElement.style.position = window.originalStylesSnapshotOne.html.position;
-                htmlElement.style.height = window.originalStylesSnapshotOne.html.height;
-                if (bodyElement && window.originalStylesSnapshotOne.body) {
-                    bodyElement.style.overflow = window.originalStylesSnapshotOne.body.overflow;
-                    bodyElement.style.position = window.originalStylesSnapshotOne.body.position;
-                    bodyElement.style.height = window.originalStylesSnapshotOne.body.height;
+            if (window.fgOriginalStylesSnapshot) {
+                htmlElement.style.overflow = window.fgOriginalStylesSnapshot.html.overflow;
+                htmlElement.style.position = window.fgOriginalStylesSnapshot.html.position;
+                htmlElement.style.height = window.fgOriginalStylesSnapshot.html.height;
+                if (bodyElement && window.fgOriginalStylesSnapshot.body) {
+                    bodyElement.style.overflow = window.fgOriginalStylesSnapshot.body.overflow;
+                    bodyElement.style.position = window.fgOriginalStylesSnapshot.body.position;
+                    bodyElement.style.height = window.fgOriginalStylesSnapshot.body.height;
                 }
             }
+            window.fgOriginalStylesSnapshot = null;
 
             chrome.runtime.sendMessage({action: "intervention-unlocked"});
             host.remove();
