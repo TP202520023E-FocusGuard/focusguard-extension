@@ -253,8 +253,18 @@
                     unlockBtn.classList.remove('ready');
                 }
             } else {
-                progressInner.style.background = '#ef4444';
+                input.value = "";
+
+                progressInner.style.width = "0%";
+                progressInner.style.background = '#3b82f6';
                 unlockBtn.classList.remove('ready');
+
+                input.style.borderColor = '#ef4444';
+                setTimeout(() => {
+                    input.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                }, 200);
+                //progressInner.style.background = '#ef4444';
+                //unlockBtn.classList.remove('ready');
             }
         });
 

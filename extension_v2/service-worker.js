@@ -877,7 +877,7 @@ async function chosenIntervention() {
   //let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 1;
   //let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 2;
   let TYPE_INTERVENTION = Math.floor(Math.random() * 3) + 1;
-  //let TYPE_INTERVENTION = 3;
+  //let TYPE_INTERVENTION = 2;
 
   let objeto = {};
 
@@ -1448,14 +1448,14 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
       const [active_tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
       if (!active_tab) return;
 
-      if (newValue === true) {
+      if (oldValue !== undefined && newValue === true) {
         console.log("CAMBIO EN STORAGE: Intervenciones ON");
 
         let { leisure_start, leisure_start_int } = await chrome.storage.local.get(["leisure_start", "leisure_start_int"]);
 
         await evaluateCurrentTabState(active_tab, leisure_start, leisure_start_int, newValue);
       }
-      else if (newValue === false) {
+      else if (oldValue !== undefined && newValue === false) {
           console.log("CAMBIO EN STORAGE: Intervenciones OFF");
           await handleUnlock();
       }
