@@ -1370,13 +1370,13 @@ async function handleUnlock() {
     };
 
     await chrome.storage.local.set({ "last_intervention": updatedIntervention, "accum_leisure_int": 0, "time_between_int_passed": false });
-    console.log("Intervención Desbloqueada");
-    console.log("Accum. leisure Int y Time betw. Int reiniciado a: ", 0);
+    console.log("- INTERVENCIÓN DESBLOQUEADA -");
+    console.log("Accum. leisure Int reiniciado a: ", 0);
+    console.log("Time betw. Int reiniciado a: ", false);
     console.log(JSON.stringify(updatedIntervention));
 
-    // Activar el leisure_start y el leisure_start_int si es necesario
     const [active_tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-
+    // Activar el leisure_start y el leisure_start_int si es necesario
     await evaluateCurrentTabState(active_tab, leisure_start, leisure_start_int, interventions_activated);
 
   }
@@ -1446,15 +1446,20 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
       if (oldValue === newValue) return;
 
       const [active_tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (!active_tab) return;
 
-      if (active_tab && newValue === true) {
-        console.log("CAMBIO EN STORAGE: Intervenciones permitidas.");
+      if (newValue === true) {
+        console.log("CAMBIO EN STORAGE: Intervenciones ON");
 
         let { leisure_start, leisure_start_int } = await chrome.storage.local.get(["leisure_start", "leisure_start_int"]);
 
         await evaluateCurrentTabState(active_tab, leisure_start, leisure_start_int, newValue);
       }
-      // TODO[MEJORA]: Escuchar tambien cuando newValue sea False. Efectuar el borrado de la intervención que esté en pantalla.
+      else if (newValue === false) {
+          console.log("CAMBIO EN STORAGE: Intervenciones OFF");
+          await handleUnlock();
+      }
+
     }, 1000);
   }
 
