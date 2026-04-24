@@ -4,6 +4,8 @@ const TIME_BETWEEN_INTERVENTIONS = 1 * 30 * 1000; // 20 min en ms
 //let TYPE_INTERVENTION = 1;
 let timerContent = null;
 let focusTimeout = null;
+let timerOnChanged1 = null;
+let timerOnChanged2 = null;
 
 
 // -------------------------------------------
@@ -196,13 +198,14 @@ async function handleWindowsChanged(windowId) {
         if (activeTab && activeTab?.id !== last_web_activated) { // Fue un cambio estre pestañas. Sino significa que se abrió una extensión
           await closeOldWebAndContent(tabs_tracking, content_tracking, last_web_activated);
           await openNewWebAndContent(activeTab, null, null, interventions_activated);
-          console.log("ESCENARIO 1: Cambio entre pestañas");
-        } else console.log("ESCENARIO 1: Se abrió una EXT | Se cancela el registro de cambio de pestaña");
+          //console.log("ESCENARIO 1: Cambio entre pestañas");
+        }
+        //else console.log("ESCENARIO 1: Se abrió una EXT | Se cancela el registro de cambio de pestaña");
 
       } else { // Salida real de Chrome (ej. Se minimiza Chrome)
         await setFocusChrome(false);
         await closeOldWebAndContent(tabs_tracking, content_tracking, last_web_activated);
-        console.log("ESCENARIO 1: Salida real de Chrome");
+        //console.log("ESCENARIO 1: Salida real de Chrome");
       }
 
     }
@@ -213,7 +216,7 @@ async function handleWindowsChanged(windowId) {
 
       await setFocusChrome(true);
       await openNewWebAndContent(activeTab, leisure_start, leisure_start_int, interventions_activated);
-      console.log("ESCENARIO 2: Volvió a Chrome después de estar fuera");
+      //console.log("ESCENARIO 2: Volvió a Chrome después de estar fuera");
     }
     else {
       // ESCENARIO 3: El usuario solo se movió entre ventanas o pestañas de Chrome
@@ -224,8 +227,9 @@ async function handleWindowsChanged(windowId) {
       if (activeTab && activeTab.id !== last_web_activated ) {
         await closeOldWebAndContent(tabs_tracking, content_tracking, last_web_activated);
         await openNewWebAndContent(activeTab, null, null, interventions_activated);
-        console.log("ESCENARIO 3: Cambio de ventana");
-      } else console.log("ESCENARIO 3: Cerró una EXT. | Ya no registra cambio de pestaña | Se actualiza su -1");
+        //console.log("ESCENARIO 3: Cambio de ventana");
+      }
+      //else console.log("ESCENARIO 3: Cerró una EXT. | Ya no registra cambio de pestaña | Se actualiza su -1");
       // NOTA -> Cuando abres una nueva ventana, se ejecuta el handleActivated y ya no se registra cambio de pestaña en aquí, pero si tu siguiente click es fuera de la nueva ventana serás -1 y false, sino serás -1 y true
 
     }
@@ -423,7 +427,8 @@ async function handleAlarm(alarm) {
           if (leisure_start_int) await syncLeisureStatusInt(null, interventions_activated);
         }
 
-      } else { // Si NO estabas dentro de Chrome...
+      }
+      else { // Si NO estabas dentro de Chrome...
         if (!anyWindowFocused) { // Y sigues fuera, no se hace nada
           return;
         }
@@ -871,8 +876,8 @@ async function uploadDataStorage() {
 async function chosenIntervention() {
   //let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 1;
   //let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 2;
-  //let TYPE_INTERVENTION = Math.floor(Math.random() * 3) + 1;
-  let TYPE_INTERVENTION = 3;
+  let TYPE_INTERVENTION = Math.floor(Math.random() * 3) + 1;
+  //let TYPE_INTERVENTION = 3;
 
   let objeto = {};
 
@@ -1132,8 +1137,8 @@ async function finishOcioSession() {
   }
 }
 async function finishOcioSessionInt() {
-  const storageKeys = ["leisure_start_int", "accum_leisure_int"];
-  let { leisure_start_int = null, accum_leisure_int } = await chrome.storage.local.get(storageKeys);
+  const storageKeys = ["leisure_start_int", "accum_leisure_int", "time_between_int_passed"];
+  let { leisure_start_int = null, accum_leisure_int, time_between_int_passed } = await chrome.storage.local.get(storageKeys);
 
   if (leisure_start_int) {// Si existe un registro de Ocio entre intervenciones
 
@@ -1149,8 +1154,10 @@ async function finishOcioSessionInt() {
       accum_leisure_int: new_accumulated
     };
 
-    if (new_accumulated >= (TIME_BETWEEN_INTERVENTIONS / 1000)) updates.time_between_int_passed = true;
+    if (!time_between_int_passed && new_accumulated >= (TIME_BETWEEN_INTERVENTIONS / 1000))
+      updates.time_between_int_passed = true;
 
+    console.log("Leisure between Int. : ", new_accumulated);
     await chrome.storage.local.set(updates);
   }
 }
@@ -1310,8 +1317,8 @@ async function updateRestTimeLocal(newRestTime) {
 }
 async function setFocusChrome(isFocused) {
   await chrome.storage.local.set({"focus_chrome": isFocused});
-  let { focus_chrome } = await chrome.storage.local.get("focus_chrome");
-  console.log("Esta en chrome?: ", focus_chrome);
+  //let { focus_chrome } = await chrome.storage.local.get("focus_chrome");
+  //console.log("Esta en chrome?: ", focus_chrome);
 }
 async function syncLeisureStatus(leisure_start, interventions_activated) {
   // Función que evalúa si procede tu solicitud de iniciar o mantener el leisure_start
@@ -1362,8 +1369,9 @@ async function handleUnlock() {
       unlock_date: new Date().toISOString() // Sellamos el éxito
     };
 
-    await chrome.storage.local.set({ "last_intervention": updatedIntervention, "accum_leisure_int": 0 });
+    await chrome.storage.local.set({ "last_intervention": updatedIntervention, "accum_leisure_int": 0, "time_between_int_passed": false });
     console.log("Intervención Desbloqueada");
+    console.log("Accum. leisure Int y Time betw. Int reiniciado a: ", 0);
     console.log(JSON.stringify(updatedIntervention));
 
     // Activar el leisure_start y el leisure_start_int si es necesario
@@ -1424,36 +1432,56 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
   if (!hasRelevantKey) return;
 
   if (changes.interventions_activated) {
-    const { oldValue, newValue } = changes.interventions_activated;
 
-    if (oldValue === newValue) return;
-
-    const [active_tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-
-    if (active_tab && newValue === true) {
-      console.log("CAMBIO EN STORAGE: Intervenciones permitidas.");
-
-      let { leisure_start, leisure_start_int } = await chrome.storage.local.get(["leisure_start", "leisure_start_int"]);
-
-      await evaluateCurrentTabState(active_tab, leisure_start, leisure_start_int, newValue);
+    if (timerOnChanged1){
+      clearTimeout(timerOnChanged1)
+      timerOnChanged1 = null;
     }
-    // TODO[MEJORA]: Escuchar tambien cuando newValue sea False. Efectuar el borrado de la intervención que esté en pantalla.
+
+    timerOnChanged1 = setTimeout(async () => {
+      timerOnChanged1 = null;
+
+      const { oldValue, newValue } = changes.interventions_activated;
+
+      if (oldValue === newValue) return;
+
+      const [active_tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+
+      if (active_tab && newValue === true) {
+        console.log("CAMBIO EN STORAGE: Intervenciones permitidas.");
+
+        let { leisure_start, leisure_start_int } = await chrome.storage.local.get(["leisure_start", "leisure_start_int"]);
+
+        await evaluateCurrentTabState(active_tab, leisure_start, leisure_start_int, newValue);
+      }
+      // TODO[MEJORA]: Escuchar tambien cuando newValue sea False. Efectuar el borrado de la intervención que esté en pantalla.
+    }, 1000);
   }
 
   if (changes.time_between_int_passed) {
-    const { oldValue, newValue } = changes.time_between_int_passed;
 
-    if (oldValue === newValue) return;
-
-    const [active_tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-
-    if (active_tab && newValue === true) {
-      console.log("TIEMPO DE OCIO ENTRE INTERVENCIONES ALCANZADO");
-
-      let { leisure_start, leisure_start_int, interventions_activated } = await chrome.storage.local.get(["leisure_start", "leisure_start_int", "interventions_activated"]);
-
-      await evaluateCurrentTabState(active_tab, leisure_start, leisure_start_int, interventions_activated);
+    if (timerOnChanged2){
+      clearTimeout(timerOnChanged2)
+      timerOnChanged2 = null;
     }
+
+    timerOnChanged2 = setTimeout(async () => {
+      timerOnChanged2 = null;
+
+      const { oldValue, newValue } = changes.time_between_int_passed;
+
+      if (oldValue === newValue) return;
+
+      const [active_tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+
+      if (active_tab && newValue === true) {
+        console.log("TIEMPO DE OCIO ENTRE INTERVENCIONES ALCANZADO");
+
+        let { leisure_start, leisure_start_int, interventions_activated } = await chrome.storage.local.get(["leisure_start", "leisure_start_int", "interventions_activated"]);
+
+        await evaluateCurrentTabState(active_tab, leisure_start, leisure_start_int, interventions_activated);
+      }
+    }, 1000);
   }
 
 });
