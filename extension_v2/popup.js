@@ -121,8 +121,8 @@ async function loadScreen() {
     if (timerElement) timerElement.textContent = formatMinutes(resttime_left);
 
   } else {
-    registerScreen.hidden = false;
-    authScreen.hidden = true;
+    registerScreen.hidden = true;
+    authScreen.hidden = false;
     dashboardScreen.hidden = true;
   }
 }

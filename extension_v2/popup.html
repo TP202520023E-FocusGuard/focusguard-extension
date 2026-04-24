@@ -7,84 +7,117 @@
       <link rel="stylesheet" href="popup.css">
    </head>
    <body>
-      <div id="register-screen">
+      <div id="register-screen" class="screen">
+         <header>
+            <div class="logo-badge">FG</div>
+            <h1>Crear Cuenta</h1>
+         </header>
          <form id="registration-form">
-
-            <label for="r-fname">Nombres:</label><br>
-            <input type="text" id="r-fname" name="r-fname"><br>
-
-            <label for="r-lname">Apellidos:</label><br>
-            <input type="text" id="r-lname" name="r-lname"><br>
-
-            <label for="r-phone">Teléfono:</label><br>
-            <input type="text" id="r-phone" name="r-phone"><br>
-
-            <label for="r-email">Correo:</label><br>
-            <input type="email" id="r-email" name="r-email"><br>
-
-            <label for="r-pwd">Contraseña:</label><br>
-            <input type="password" id="r-pwd" name="r-pwd"><br>
-
-            <label for="r-pwd2">Confirmar Contraseña:</label><br>
-            <input type="password" id="r-pwd2" name="r-pwd2"><br>
-
-            <label for="r-phrase">Frase de seguridad:</label><br>
-            <input type="text" id="r-phrase" name="r-phrase"><br>
-
-            <input type="submit" value="Registrar">
+            <div class="input-group">
+               <label for="r-fname">Nombres</label>
+               <input type="text" id="r-fname" name="r-fname" placeholder="Ej. Rafael">
+            </div>
+            
+            <div class="input-group">
+               <label for="r-lname">Apellidos</label>
+               <input type="text" id="r-lname" name="r-lname" placeholder="Ej. Perez">
+            </div>
+            
+            <div class="input-group">
+               <label for="r-phone">Teléfono</label>
+               <input type="text" id="r-phone" name="r-phone" placeholder="+51 999...">
+            </div>
+            
+            <div class="input-group">
+               <label for="r-email">Correo</label>
+               <input type="email" id="r-email" name="r-email" placeholder="usuario@upc.edu.pe">
+            </div>
+            
+            <div class="input-group">
+               <label for="r-pwd">Contraseña</label>
+               <input type="password" id="r-pwd" name="r-pwd" placeholder="••••••••">
+            </div>
+            
+            <div class="input-group">
+               <label for="r-pwd2">Confirmar</label>
+               <input type="password" id="r-pwd2" name="r-pwd2" placeholder="••••••••">
+            </div>
+            
+            <div class="input-group">
+               <label for="r-phrase">Frase de seguridad</label>
+               <input type="text" id="r-phrase" name="r-phrase" placeholder="Tu frase secreta">
+            </div>
+            
+            <input type="submit" value="Registrar" class="btn-primary">
          </form>
-         <p id="btn-go-to-auth">Iniciar sesión</p>
+         <p id="btn-go-to-auth" class="link-text">¿Ya tienes cuenta? Iniciar sesión</p>
       </div>
-
-      <div id="auth-screen">
+      
+      <div id="auth-screen" class="screen">
+         <header>
+            <div class="logo-badge">FG</div>
+            <h1>FocusGuard</h1>
+            <p class="subtitle">Ingeniería de la atención</p>
+         </header>
          <form id="auth-form">
-            <label for="a-email">Correo:</label><br>
-            <input type="email" id="a-email" name="a-email"><br>
-
-            <label for="a-pwd">Contraseña:</label><br>
-            <input type="password" id="a-pwd" name="a-pwd"><br>
-
-            <input type="submit" value="Iniciar sesión">
+            <div class="input-group">
+               <label for="a-email">Correo</label>
+               <input type="email" id="a-email" name="a-email" placeholder="usuario@correo.com">
+            </div>
+            
+            <div class="input-group">
+               <label for="a-pwd">Contraseña</label>
+               <input type="password" id="a-pwd" name="a-pwd" placeholder="••••••••">
+            </div>
+            
+            <input type="submit" value="Iniciar sesión" class="btn-primary">
          </form>
-         <p id="btn-go-to-register">Registrar usuario</p>
+         <p id="btn-go-to-register" class="link-text">Registrar nuevo usuario</p>
       </div>
-
-      <div id="dashboard-screen">
+      
+      <div id="dashboard-screen" class="screen">
          <div class="popup-info">
+            <div class="dashboard-header">
+               <div class="logo-badge mini">FG</div>
+               <h2>Estado Actual</h2>
+            </div>
+            
             <div class="popup-section website-visited">
-               <h3>Dominio</h3>
-               <h3 id="domain"></h3>
-               <p>Este es el sitio web que estas visitando en este momento</p>
+               <span class="label">Dominio</span>
+               <h3 id="domain">No identificado</h3>
+               <p class="desc">Sitio web activo en esta pestaña</p>
             </div>
-
-            <div class="popup-section website-category">
-               <h3>Categoría del sitio</h3>
-               <h3 id="category-web"></h3>
+            
+            <div class="stats-grid">
+               <div class="popup-section website-category">
+                  <span class="label">Sitio</span>
+                  <h3 id="category-web">-</h3>
+               </div>
+               
+               <div class="popup-section content-category">
+                  <span class="label">Contenido</span>
+                  <h3 id="category-content">-</h3>
+               </div>
             </div>
-
-            <div class="popup-section content-category">
-               <h3>Clasificación Ocio</h3>
-               <p>*Aquí va la clasificación del contenido*</p>
-            </div>
-
-            <div class="popup-section free-time">
-               <h3>Descanso restante</h3>
+            
+            <div class="popup-section free-time highlight">
+               <span class="label">Tiempo de Ocio Restante</span>
                <time id="display-timer" class="timer-digits">00:00:00</time>
             </div>
-
-            <div class="popup-section">
-               <button class="btn-change-content-category">Marcar como no ocio</button>
-               <p>Usa este botón si la evaluación automática no se ajusta a tu realidad.</p>
+            
+            <div class="action-box">
+               <button class="btn-change-content-category">⚠️ No es ocio</button>
+               <p class="hint">Corrige la evaluación automática para mejorar el modelo ML.</p>
             </div>
-
-            <br>
-
-            <a>Abrir panel de control</a>
-            <p>Cultiva hábitos conscientes: pequeños ajustes constantes construyen grandes logros.</p>
+            
+            <div class="panel-link">
+               <a class="main-link">Abrir panel de control</a>
+               <p class="quote">"El progreso es la clave del enfoque."</p>
+            </div>
          </div>
-         <p id="btn-logout">Cerrar sesión</p>
+         <p id="btn-logout" class="btn-secondary">Cerrar sesión</p>
       </div>
-
+      
       <script type="module" src="popup.js"></script>
    </body>
 </html>
