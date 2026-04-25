@@ -112,7 +112,7 @@ async function loadScreen() {
     const domainElement = document.getElementById("domain");
     if (domainElement) domainElement.innerHTML = domain;
 
-    const catWeb = await getCurrentDomain();
+    const catWeb = domain ? await getCategoryWeb(domain) : "-";
     const catWebElement = document.getElementById("category-web");
     if (catWebElement) catWebElement.innerHTML = catWeb;
 
@@ -230,7 +230,6 @@ function updateTimeSpent() {
     });
   });
 }
-
 function deleteAlarms() {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage({ action: "delete-alarms" }, (response) => {
@@ -244,7 +243,6 @@ function deleteAlarms() {
     });
   });
 }
-
 function clearAllStorage() {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage({ action: "clear-all-storage" }, (response) => {
@@ -252,6 +250,19 @@ function clearAllStorage() {
       if (response.status === "success") {
         console.log("Storage limpiado exitosamente");
         resolve();
+      } else {
+        reject(new Error(response.message));
+      }
+    });
+  });
+}
+function getCategoryWeb(domain) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ action: "get-category-web", hostname: domain }, (response) => {
+      if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+      if (response.status === "success") {
+        console.log("Categoría web obtenida exitosamente");
+        resolve(response.data);
       } else {
         reject(new Error(response.message));
       }
@@ -310,7 +321,6 @@ async function getCurrentDomain() {
     return null;
   }
 }
-
 
 
 await loadScreen();

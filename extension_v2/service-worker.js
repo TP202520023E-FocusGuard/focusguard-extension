@@ -58,7 +58,8 @@ async function handleOnMessage(message, sender, sendResponse) {
     "update-time-spent": updateTimeSpent,
     "delete-alarms": deleteAlarms,
     "clear-all-storage": clearAllStorage,
-    "intervention-unlocked": handleUnlock
+    "intervention-unlocked": handleUnlock,
+    "get-category-web": (msg) => getCategoryNameByHostname(msg.hostname)
   };
 
   const actionName = message.action;
@@ -85,8 +86,8 @@ async function handleOnMessage(message, sender, sendResponse) {
 
     try {
       // ESPERAMOS a que la acción termine de verdad (sea async o no)
-      await action(message);
-      sendResponse({ status: "success" });
+      const result = await action(message);
+      sendResponse({ status: "success", data: result });
     } catch (error) {
       sendResponse({ status: "error", message: error.message });
     }
@@ -868,6 +869,26 @@ async function uploadDataStorage() {
 
 }
 
+async function getCategoryNameByHostname(hostname) {
+  try {
+    let id_user = await getUserLogged();
+    if (!id_user) return "-";
+
+    let response = await fetch(`http://127.0.0.1:8000/api/v1/website-users/users/${id_user}/domain/${hostname}`, {
+      method: "GET",
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (!response.ok) throw new Error(`Error en obtener el nombre de la categoría del sitio web: ${response.status}`);
+
+    const data = await response.json();
+    return typeof data === 'string' ? data : "-";
+
+  } catch (e) {
+    //console.error(e.message);
+    return "-"
+  }
+}
 
 // -------------------------------------------
 //           FUNCIONES OPERATIVAS
