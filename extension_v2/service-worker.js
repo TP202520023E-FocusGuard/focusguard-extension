@@ -453,6 +453,7 @@ async function handleAlarm(alarm) {
 }
 
 
+
 // -------------------------------------------
 //        FUNCIONES DE LA BASE DE DATOS
 // -------------------------------------------
@@ -889,6 +890,62 @@ async function getCategoryNameByHostname(hostname) {
     return "-"
   }
 }
+async function createInterventionDB(tipo) {
+  const id_user = await getUserLogged();
+  if (!id_user) throw new Error(`No se pudo obtener el usuario logeado`);
+
+  const intervention = {
+    id_usuarios: id_user,
+    tipo: tipo,
+    fecha_despliegue: new Date(),
+  };
+
+  try {
+    let response = await fetch(`http://127.0.0.1:8000/api/v1/interventions`, {
+      method: "POST",
+      body: JSON.stringify(intervention),
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (!response.ok)
+      throw new Error(`Error en intervenciones: ${response.status}`);
+
+    let data = await response.json();
+    let id_intervention = data.id;
+    return id_intervention || null;
+  }
+  catch (e) {
+    console.error(e.message);
+    return null;
+  }
+}
+async function updateInterventionDB(id_intervention, unlock_date = null) {
+
+  const intervention = {
+    fecha_desbloqueo: unlock_date || new Date(),
+  };
+
+  try {
+    let response = await fetch(`http://127.0.0.1:8000/api/v1/interventions/${id_intervention}`, {
+      method: "PATCH",
+      body: JSON.stringify(intervention),
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (!response.ok)
+      throw new Error(`Error al actualizar el desbloqueo de la intervencion: ${response.status}`);
+
+    let data = await response.json();
+    let id_int = data.id;
+
+    if (!id_int)
+      throw new Error(`Error: No se pudo actualizar el desbloqueo de la intervención`);
+  }
+  catch (e) {
+    console.error(e.message);
+  }
+}
+
 
 // -------------------------------------------
 //           FUNCIONES OPERATIVAS
@@ -973,6 +1030,8 @@ async function injectIntervention(tabId, interventionReLaunched = null) {
           }
         });
 
+        await updateInterventionDB(interventionData.id_db, release_date);
+
         return;
       }
     }
@@ -1029,6 +1088,7 @@ async function injectIntervention(tabId, interventionReLaunched = null) {
     });
 
     // 3. Actualizamos el estado en Storage
+    /*
     let aux = {
         launch_date: launch_date,
         type: type,
@@ -1039,17 +1099,23 @@ async function injectIntervention(tabId, interventionReLaunched = null) {
       };
 
     console.log(JSON.stringify(aux));
+    */
 
-    await chrome.storage.local.set({
-      last_intervention: {
-        launch_date: launch_date,
-        type: type,
-        duration: duration || null,
-        text: text || null,
-        release_date: release_date || null,
-        unlock_date: null // Se llenará cuando el usuario la desbloquee con éxito
-      }
-    });
+    if (!isRelaunch) {
+      let id_intervention = await createInterventionDB(type);
+
+      await chrome.storage.local.set({
+        last_intervention: {
+          id_db: id_intervention,
+          launch_date: launch_date,
+          type: type,
+          duration: duration || null,
+          text: text || null,
+          release_date: release_date || null,
+          unlock_date: null // Se llenará cuando el usuario la desbloquee con éxito
+        }
+      });
+    }
 
   } catch (err) {
     console.error("Fallo en la inyección:", err);
@@ -1071,9 +1137,6 @@ async function shouldLaunchIntervention(tabId, interventions_activated) {
   const wasUnlocked = !!intervention.unlock_date;
 
   if (wasUnlocked) {
-    //const now = new Date();
-    //const timePassedSinceUnlock = now - new Date(intervention.unlock_date);
-    //console.log("Tiempo transcurrido de OCIO desde desbloqueo: ", timePassedSinceUnlock / 1000);
 
     const { accum_leisure_int = 0 } = await chrome.storage.local.get("accum_leisure_int");
 
@@ -1390,6 +1453,8 @@ async function handleUnlock() {
       unlock_date: new Date().toISOString() // Sellamos el éxito
     };
 
+    await updateInterventionDB(last_intervention.id_db);
+
     await chrome.storage.local.set({ "last_intervention": updatedIntervention, "accum_leisure_int": 0, "time_between_int_passed": false });
     console.log("- INTERVENCIÓN DESBLOQUEADA -");
     console.log("Accum. leisure Int reiniciado a: ", 0);
@@ -1406,6 +1471,7 @@ async function init() {
   const isLogged = await getUserLogged();
   if (isLogged) await checkAlarmState();
 }
+
 
 
 // -------------------------------------------
