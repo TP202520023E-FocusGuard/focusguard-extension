@@ -1,3 +1,4 @@
+const BASE_URL = "http://127.0.0.1:8000/api/v1";
 const DEFAULT_ORIGIN = "default";
 const TIME_BETWEEN_INTERVENTIONS = 1 * 30 * 1000; // 20 min en ms
 //let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 1;
@@ -59,7 +60,8 @@ async function handleOnMessage(message, sender, sendResponse) {
     "delete-alarms": deleteAlarms,
     "clear-all-storage": clearAllStorage,
     "intervention-unlocked": handleUnlock,
-    "get-category-web": (msg) => getCategoryNameByHostname(msg.hostname)
+    "get-category-web": (msg) => getCategoryNameByHostname(msg.hostname),
+    "get-category-content": (msg) => categorizeContentv1(msg.hostname, msg.title),
   };
 
   const actionName = message.action;
@@ -306,7 +308,7 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
 
         // TODO[Urgente]: Evaluar si en la base de datos tenemos ya categorizado a este contenido,
         //  sino debemos consultarle al ML y luego agregarlo a la BD. Por el momento, digamos que sí es ocio (categorizeContent devuelve true).
-        let isLeisure = categorizeContent(tabInfo.title);
+        let isLeisure = await categorizeContent(tabInfo.title);
 
         if (isLeisure) {
           await shouldLaunchIntervention(tabId, interventions_activated);
@@ -406,6 +408,7 @@ async function handleAlarm(alarm) {
 
   if (alarm.name === "pulse") {
     console.log (":::: PULSE ALARM de 1 min ::::")
+    await checkDailyReset();
 
     try {
       const storageKeys = ["tabs_tracking", "content_tracking", "last_web_activated", "focus_chrome", "leisure_start", "leisure_start_int", "interventions_activated"];
@@ -458,6 +461,7 @@ async function handleAlarm(alarm) {
 //        FUNCIONES DE LA BASE DE DATOS
 // -------------------------------------------
 
+// Websites
 async function setWebComplete(tabId, hostname) {
 // Registro completo en las tablas sitios_web, sitios_web_usuario y sitios_web_visitados
 
@@ -467,7 +471,7 @@ async function setWebComplete(tabId, hostname) {
 
     // 1. REGISTRAMOS EL WEBSITE
 
-    let response1 = await fetch(`http://127.0.0.1:8000/api/v1/websites`, {
+    let response1 = await fetch(`${BASE_URL}/websites`, {
       method: "POST",
       body: JSON.stringify(new_web),
       headers: {"Content-Type": "application/json"}
@@ -491,7 +495,7 @@ async function setWebComplete(tabId, hostname) {
 
     // 2. REGISTRAMOS EL WEBSITE POR USUARIO
 
-    let response2 = await fetch(`http://127.0.0.1:8000/api/v1/website-users`, {
+    let response2 = await fetch(`${BASE_URL}/website-users`, {
       method: "POST",
       body: JSON.stringify(new_website_user),
       headers: {"Content-Type": "application/json"},
@@ -513,7 +517,7 @@ async function setWebComplete(tabId, hostname) {
 
     // 3. REGISTRAMOS LA VISITA AL WEBSITE
 
-    let response3 = await fetch(`http://127.0.0.1:8000/api/v1/website-visited`, {
+    let response3 = await fetch(`${BASE_URL}/website-visited`, {
       method: "POST",
       body: JSON.stringify(new_web_visited),
       headers: {"Content-Type": "application/json"}
@@ -536,7 +540,7 @@ async function setWebComplete(tabId, hostname) {
 }
 async function updateWebDeparture(id_web, web_updated) {
   try {
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/website-visited/${id_web}`, {
+    let response = await fetch(`${BASE_URL}/website-visited/${id_web}`, {
       method: "PATCH",
       body: JSON.stringify(web_updated),
       headers: {
@@ -552,173 +556,6 @@ async function updateWebDeparture(id_web, web_updated) {
   }
 }
 
-async function setContentComplete(tabId, title, hostname) {
-  let new_content = { titulo: title };
-
-  try {
-
-    // OBTENEMOS EL SITIO WEB POR SU DOMINIO
-    let resWeb = await fetch(`http://127.0.0.1:8000/api/v1/websites/by-domain/${hostname}`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      }
-    });
-
-    if (!resWeb.ok) throw new Error(`Error en obtener id_web para registrar el contenido: ${resWeb.status}`);
-
-    let dataWeb = await resWeb.json();
-    let id_web = dataWeb.id;
-
-    // REGISTRAMOS EL CONTENIDO
-    let resContent = await fetch(`http://127.0.0.1:8000/api/v1/contents`, {
-      method: "POST",
-      body: JSON.stringify(new_content),
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (!resContent.ok) throw new Error(`Error en contents: ${resContent.status}`);
-
-    let dataContent = await resContent.json();
-    let id_content = dataContent.id;
-
-    // OBTENEMOS LA WEB DEL USUARIO
-    const user_id = await getUserLogged();
-    let resWebUser = await fetch(`http://127.0.0.1:8000/api/v1/website-users/users/${user_id}/sites/${id_web}`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      }
-    });
-
-    if (!resWebUser.ok) throw new Error(`Error en obtener el id_sitios_web_usuario para contents: ${resWebUser.status}`);
-
-    let data_web_user = await resWebUser.json();
-    let id_web_user = data_web_user.id;
-
-    const id_default_category_content = await getDefaultCategoryContent();
-    const new_content_user = {
-      id_usuarios: user_id,
-      id_sitios_web_usuario: id_web_user,
-      id_contenidos: id_content,
-      id_categorias_contenido: id_default_category_content,
-    };
-
-
-    // REGISTRAMOS EL CONTENIDO POR USUARIO
-    let resContentUser = await fetch(`http://127.0.0.1:8000/api/v1/content-users`, {
-      method: "POST",
-      body: JSON.stringify(new_content_user),
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (!resContentUser.ok) throw new Error(`Error en content-users: ${resContentUser.status}`);
-
-    let dataContentUser = await resContentUser.json();
-    let id_content_user = dataContentUser.id;
-
-    let new_content_visited = {
-      id_usuarios: user_id,
-      id_contenidos_usuario: id_content_user,
-      fecha_hora_ingreso: new Date()
-    };
-
-    // REGISTRAMOS LA FECHA DE ENTRADA AL CONTENIDO
-
-    let resContentVisited = await fetch(`http://127.0.0.1:8000/api/v1/content-visited`, {
-      method: "POST",
-      body: JSON.stringify(new_content_visited),
-      headers: {
-        "Content-Type": "application/json",
-      }
-    });
-
-    if (!resContentVisited.ok) throw new Error(`Error en content-user-visited: ${resContentVisited.status}`);
-
-    let dataContentVisited = await resContentVisited.json();
-
-    // GUARDAMOS EL ID DE LA PESTAÑA JUNTO CON SU ID DE CONTENT_VISITADO EN LA BD
-    let { content_tracking = {} } = await chrome.storage.local.get("content_tracking");
-    content_tracking[tabId.toString()] = dataContentVisited.id;
-
-    await chrome.storage.local.set({"content_tracking": content_tracking});
-
-  } catch (e) {
-    console.error(e.message);
-  }
-}
-async function updateContentDeparture(id_content, content_updated) {
-  try {
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/content-visited/${id_content}`, {
-      method: "PATCH",
-      body: JSON.stringify(content_updated),
-      headers: {
-        "Content-Type": "application/json",
-      }
-    });
-
-    if (!response.ok)
-      throw new Error(`Error al actualizar la salida en content-user-visited: ${response.status}`);
-
-  } catch (e) {
-    console.error(e.message);
-  }
-}
-
-async function getDefaultCategoryWeb() {
-  try {
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/categories/web/codigo/sin-categoria`, {
-      method: "GET",
-      headers: {"Content-Type": "application/json"}
-    });
-
-    if (!response.ok) throw new Error(`Error en obtener la categoría web por default: ${response.status}`);
-
-    let data = await response.json();
-    return data.id;
-
-  } catch (e) {
-    console.error(e.message);
-  }
-}
-async function getDefaultCategoryContent() {
-  try {
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/categories/content/codigo/ocio`, {
-      method: "GET",
-      headers: {"Content-Type": "application/json"}
-    });
-
-    if (!response.ok) throw new Error(`Error en obtener la categoría web por default: ${response.status}`);
-
-    let data = await response.json();
-    return data.id;
-
-  } catch (e) {
-    console.error(e.message);
-  }
-}
-
-async function getCategoryIdByCode(code) {
-  try {
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/categories/web/codigo/${code}`, {
-      method: "GET",
-      headers: {"Content-Type": "application/json"}
-    });
-
-    if (!response.ok) throw new Error(`Error en obtener el ID de la categoría ${code}: ${response.status}`);
-
-    let data = await response.json();
-    return data.id || null;
-
-  } catch (e) {
-    console.error(e.message);
-    return null;
-  }
-}
 async function getWebsDistractive(shouldThrow = false) {
   let id_user = await getUserLogged();
   let id_distractivo = await getCategoryIdByCode("distractivo");
@@ -732,7 +569,7 @@ async function getWebsDistractive(shouldThrow = false) {
 
   try {
     // OBTENEMOS LOS HOSTNAMES DE LOS SITIOS DISTRACTIVOS DEL USUARIO
-    let res_distractivo = await fetch(`http://127.0.0.1:8000/api/v1/website-users/users/${id_user}/categories/${id_distractivo}/domains`, {
+    let res_distractivo = await fetch(`${BASE_URL}/website-users/users/${id_user}/categories/${id_distractivo}/domains`, {
       method: "GET",
       headers: {"Content-Type": "application/json"}
     });
@@ -762,7 +599,7 @@ async function getWebsDobleFilo(shouldThrow = false) {
 
   try {
     // OBTENEMOS LOS HOSTNAMES DE LOS SITIOS DOBLE FILO DEL USUARIO
-    let res_doblefilo = await fetch(`http://127.0.0.1:8000/api/v1/website-users/users/${id_user}/categories/${id_doble_filo}/domains`, {
+    let res_doblefilo = await fetch(`${BASE_URL}/website-users/users/${id_user}/categories/${id_doble_filo}/domains`, {
       method: "GET",
       headers: {"Content-Type": "application/json"}
     });
@@ -794,10 +631,200 @@ async function getWebsDobleFiloAndDistractive(shouldThrow = false) {
 
 }
 
+// Contents
+async function setContentComplete(tabId, title, hostname) {
+  let new_content = { titulo: title };
+
+  try {
+
+    // OBTENEMOS EL SITIO WEB POR SU DOMINIO
+    let resWeb = await fetch(`${BASE_URL}/websites/by-domain/${hostname}`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      }
+    });
+
+    if (!resWeb.ok) throw new Error(`Error en obtener id_web para registrar el contenido: ${resWeb.status}`);
+
+    let dataWeb = await resWeb.json();
+    let id_web = dataWeb.id;
+
+    // REGISTRAMOS EL CONTENIDO
+    let resContent = await fetch(`${BASE_URL}/contents`, {
+      method: "POST",
+      body: JSON.stringify(new_content),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!resContent.ok) throw new Error(`Error en contents: ${resContent.status}`);
+
+    let dataContent = await resContent.json();
+    let id_content = dataContent.id;
+
+    // OBTENEMOS LA WEB DEL USUARIO
+    const user_id = await getUserLogged();
+    let resWebUser = await fetch(`${BASE_URL}/website-users/users/${user_id}/sites/${id_web}`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      }
+    });
+
+    if (!resWebUser.ok) throw new Error(`Error en obtener el id_sitios_web_usuario para contents: ${resWebUser.status}`);
+
+    let data_web_user = await resWebUser.json();
+    let id_web_user = data_web_user.id;
+
+    const id_default_category_content = await getDefaultCategoryContent();
+    const new_content_user = {
+      id_usuarios: user_id,
+      id_sitios_web_usuario: id_web_user,
+      id_contenidos: id_content,
+      id_categorias_contenido: id_default_category_content,
+    };
+
+
+    // REGISTRAMOS EL CONTENIDO POR USUARIO
+    let resContentUser = await fetch(`${BASE_URL}/content-users`, {
+      method: "POST",
+      body: JSON.stringify(new_content_user),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!resContentUser.ok) throw new Error(`Error en content-users: ${resContentUser.status}`);
+
+    let dataContentUser = await resContentUser.json();
+    let id_content_user = dataContentUser.id;
+
+    let new_content_visited = {
+      id_usuarios: user_id,
+      id_contenidos_usuario: id_content_user,
+      fecha_hora_ingreso: new Date()
+    };
+
+    // REGISTRAMOS LA FECHA DE ENTRADA AL CONTENIDO
+
+    let resContentVisited = await fetch(`${BASE_URL}/content-visited`, {
+      method: "POST",
+      body: JSON.stringify(new_content_visited),
+      headers: {
+        "Content-Type": "application/json",
+      }
+    });
+
+    if (!resContentVisited.ok) throw new Error(`Error en content-user-visited: ${resContentVisited.status}`);
+
+    let dataContentVisited = await resContentVisited.json();
+
+    // GUARDAMOS EL ID DE LA PESTAÑA JUNTO CON SU ID DE CONTENT_VISITADO EN LA BD
+    let { content_tracking = {} } = await chrome.storage.local.get("content_tracking");
+    content_tracking[tabId.toString()] = dataContentVisited.id;
+
+    await chrome.storage.local.set({"content_tracking": content_tracking});
+
+  } catch (e) {
+    console.error(e.message);
+  }
+}
+async function updateContentDeparture(id_content, content_updated) {
+  try {
+    let response = await fetch(`${BASE_URL}/content-visited/${id_content}`, {
+      method: "PATCH",
+      body: JSON.stringify(content_updated),
+      headers: {
+        "Content-Type": "application/json",
+      }
+    });
+
+    if (!response.ok)
+      throw new Error(`Error al actualizar la salida en content-user-visited: ${response.status}`);
+
+  } catch (e) {
+    console.error(e.message);
+  }
+}
+
+// Categories
+async function getDefaultCategoryWeb() {
+  try {
+    let response = await fetch(`${BASE_URL}/categories/web/codigo/sin-categoria`, {
+      method: "GET",
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (!response.ok) throw new Error(`Error en obtener la categoría web por default: ${response.status}`);
+
+    let data = await response.json();
+    return data.id;
+
+  } catch (e) {
+    console.error(e.message);
+  }
+}
+async function getDefaultCategoryContent() {
+  try {
+    let response = await fetch(`${BASE_URL}/categories/content/codigo/ocio`, {
+      method: "GET",
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (!response.ok) throw new Error(`Error en obtener la categoría web por default: ${response.status}`);
+
+    let data = await response.json();
+    return data.id;
+
+  } catch (e) {
+    console.error(e.message);
+  }
+}
+async function getCategoryIdByCode(code) {
+  try {
+    let response = await fetch(`${BASE_URL}/categories/web/codigo/${code}`, {
+      method: "GET",
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (!response.ok) throw new Error(`Error en obtener el ID de la categoría ${code}: ${response.status}`);
+
+    let data = await response.json();
+    return data.id || null;
+
+  } catch (e) {
+    console.error(e.message);
+    return null;
+  }
+}
+async function getCategoryNameByHostname(hostname) {
+  try {
+    let id_user = await getUserLogged();
+    if (!id_user) return "-";
+
+    let response = await fetch(`${BASE_URL}/website-users/users/${id_user}/domain/${hostname}`, {
+      method: "GET",
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (!response.ok) throw new Error(`Error en obtener el nombre de la categoría del sitio web: ${response.status}`);
+
+    const data = await response.json();
+    return typeof data === 'string' ? data : "-";
+
+  } catch (e) {
+    //console.error(e.message);
+    return "-"
+  }
+}
+
+// Rest Time
 async function getAssignedRestTime(userId) {
 
   try {
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/rest-time/${userId}`, {
+    let response = await fetch(`${BASE_URL}/rest-time/${userId}`, {
       method: "GET",
       headers: {"Content-Type": "application/json"}
     });
@@ -815,7 +842,7 @@ async function getAssignedRestTime(userId) {
 async function getRestTimeUsed(userId) {
 
   try {
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/rest-time/${userId}`, {
+    let response = await fetch(`${BASE_URL}/rest-time/${userId}`, {
       method: "GET",
       headers: {"Content-Type": "application/json"}
     });
@@ -849,7 +876,7 @@ async function updateTimeSpent() {
 
     const timeUpdated = { tiempo_usado: new_total };
 
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/rest-time/${id_user}`, {
+    let response = await fetch(`${BASE_URL}/rest-time/${id_user}`, {
       method: "PUT",
       body: JSON.stringify(timeUpdated),
       headers: {"Content-Type": "application/json"}
@@ -863,33 +890,26 @@ async function updateTimeSpent() {
     console.error("Error al subir la data del storage al backend", e.message);
   }
 }
-
-async function uploadDataStorage() {
-
-  await updateTimeSpent();
-
-}
-
-async function getCategoryNameByHostname(hostname) {
+async function resetTimeSpent() {
   try {
-    let id_user = await getUserLogged();
-    if (!id_user) return "-";
+    const id_user = await getUserLogged();
 
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/website-users/users/${id_user}/domain/${hostname}`, {
-      method: "GET",
+    const timeUpdated = { tiempo_usado: 0 };
+
+    let response = await fetch(`${BASE_URL}/rest-time/${id_user}`, {
+      method: "PUT",
+      body: JSON.stringify(timeUpdated),
       headers: {"Content-Type": "application/json"}
     });
 
-    if (!response.ok) throw new Error(`Error en obtener el nombre de la categoría del sitio web: ${response.status}`);
-
-    const data = await response.json();
-    return typeof data === 'string' ? data : "-";
+    if (!response.ok) throw new Error(`Error al resetear el tiempo usado: ${response.status}`);
 
   } catch (e) {
-    //console.error(e.message);
-    return "-"
+    console.error("Error reseteo tiempo usado", e.message);
   }
 }
+
+// Interventions
 async function createInterventionDB(tipo) {
   const id_user = await getUserLogged();
   if (!id_user) throw new Error(`No se pudo obtener el usuario logeado`);
@@ -901,7 +921,7 @@ async function createInterventionDB(tipo) {
   };
 
   try {
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/interventions`, {
+    let response = await fetch(`${BASE_URL}/interventions`, {
       method: "POST",
       body: JSON.stringify(intervention),
       headers: {"Content-Type": "application/json"}
@@ -926,7 +946,7 @@ async function updateInterventionDB(id_intervention, unlock_date = null) {
   };
 
   try {
-    let response = await fetch(`http://127.0.0.1:8000/api/v1/interventions/${id_intervention}`, {
+    let response = await fetch(`${BASE_URL}/interventions/${id_intervention}`, {
       method: "PATCH",
       body: JSON.stringify(intervention),
       headers: {"Content-Type": "application/json"}
@@ -946,40 +966,116 @@ async function updateInterventionDB(id_intervention, unlock_date = null) {
   }
 }
 
+// ML
+async function categorizeContentv1(hostname, titulo){
+  const [webs_doblefilo] = await Promise.all([
+    getWebsDobleFilo(),
+  ]);
 
-// -------------------------------------------
-//           FUNCIONES OPERATIVAS
-// -------------------------------------------
+  const is_dobleFilo = webs_doblefilo.includes(hostname);
+  if (!is_dobleFilo) return "-";
 
+  return await categorizeContent(titulo);
+}
+async function categorizeContent(titulo) {
+  try {
+    let response = await fetch(`${BASE_URL}/ml_classification`, {
+      method: "POST",
+      body: JSON.stringify({texto: titulo || ""}),
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (!response.ok)
+      throw new Error(`Error en ML-Contextual: ${response.status}`);
+
+    let data = await response.json();
+    if (data && data.etiqueta_predicha) {
+      console.log(`ML Classification: ${data.etiqueta_predicha} (Prob: ${data.probabilidad_ocio.toFixed(2)})`);
+      return data.etiqueta_predicha === "Ocio";
+    }
+    return false;
+  }
+  catch (e) {
+    console.error("Error en la clasificación de contenido:", e.message);
+    return false;
+  }
+}
 async function chosenIntervention() {
   //let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 1;
   //let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 2;
-  let TYPE_INTERVENTION = Math.floor(Math.random() * 3) + 1;
-  //let TYPE_INTERVENTION = 2;
-
+  // let TYPE_INTERVENTION = Math.floor(Math.random() * 3) + 1;
+  // let TYPE_INTERVENTION = 2;
   let objeto = {};
+  let type_intervention = 1;
 
-  if (TYPE_INTERVENTION === 1) {
+  try {
+    const id_user = await getUserLogged();
+    if (!id_user) throw new Error(`No se pudo obtener el usuario logeado`);
+
+    let response = await fetch(`${BASE_URL}/ml/predict`, {
+      method: "POST",
+      body: JSON.stringify({id_usuarios: id_user}),
+      headers: {"Content-Type": "application/json"}
+    });
+
+    if (!response.ok)
+      throw new Error(`Error en ML-Secuencial-Refuerzo: ${response.status}`);
+
+    let data = await response.json();
+
+    if (data){
+      console.log("Valor de intervención escogida: ", data);
+      /*
+      if (data.prob_procrastinacion <= 0.2) type_intervention = 1;
+      else if (data.prob_procrastinacion <= 0.5) type_intervention = 2;
+      else type_intervention = 3;
+      */
+      if (data.action === "BLOQUEO") type_intervention = 3;
+      else if (data.action === "ESCRITURA") type_intervention = 2;
+      else type_intervention = 1;
+    }
+
+  }
+  catch (e) {
+    console.error("Error al escoger la intervención:", e.message);
+  }
+
+
+  if (type_intervention === 1) {
     objeto = {
-      type: TYPE_INTERVENTION,
+      type: type_intervention,
       duration: 10
     };
   }
-  else if (TYPE_INTERVENTION === 2) {
+  else if (type_intervention === 2) {
     objeto = {
-      type: TYPE_INTERVENTION,
+      type: type_intervention,
       text: "Texto de prueba."
     };
   }
-  else if (TYPE_INTERVENTION === 3) {
+  else if (type_intervention === 3) {
     objeto = {
-      type: TYPE_INTERVENTION,
+      type: type_intervention,
       duration: 15
     };
   }
 
   return objeto;
 }
+
+// Others
+async function uploadDataStorage() {
+
+  await updateTimeSpent();
+
+}
+
+
+
+// -------------------------------------------
+//           FUNCIONES OPERATIVAS
+// -------------------------------------------
+
 async function isThereRestTimeLeft() {
   const data = await chrome.storage.local.get(["assigned_rest_time", "accumulated_leisure_time"]);
   const assigned = (data.assigned_rest_time || 0) * 60; // Convertir a segundos
@@ -1183,10 +1279,6 @@ function withAuthMessage(handler) {
     return true;
   };
 }
-function categorizeContent(titulo) {
-  // Aquí se insertará la lógica del ML más adelante
-  return true;
-}
 
 // Getters
 async function getUserLogged() {
@@ -1323,8 +1415,9 @@ async function evaluateCurrentTabState(tabInfo, leisure_start, leisure_start_int
 
   if (isDobleFilo) {
     if (setWebAndContent) await setContentComplete(tabInfo.id, tabInfo.title, hostname);
+    let isLeisure = await categorizeContent(tabInfo.title);
 
-    if (categorizeContent(tabInfo.title)) {
+    if (isLeisure) {
       await shouldLaunchIntervention(tabInfo.id, interventions_activated);
       await syncLeisureStatus(leisure_start, interventions_activated);
       await syncLeisureStatusInt(leisure_start_int, interventions_activated);
@@ -1356,6 +1449,7 @@ async function initializeStorage() {
     const time_spent_local = accumulated_leisure_time;
     const time_spent_db_min = await getRestTimeUsed(user_id);
     const time_spent_db = time_spent_db_min * 60;
+    const now = new Date();
 
     const accumulated_time = time_spent_local >= time_spent_db ? time_spent_local : time_spent_db;
 
@@ -1369,6 +1463,7 @@ async function initializeStorage() {
     updates.accumulated_leisure_time = accumulated_time; // segundos
     updates.last_synced_time = accumulated_time; // segundos
     updates.time_between_int_passed = false;
+    updates.last_reset_date = now.toLocaleDateString();
 
     // TODO[URGENTE]: Buscar en la BD si ya han habido intervenciones hoy
 
@@ -1471,7 +1566,33 @@ async function init() {
   const isLogged = await getUserLogged();
   if (isLogged) await checkAlarmState();
 }
+async function checkDailyReset() {
+  const now = new Date();
+  const today = now.toLocaleDateString(); // "DD/MM/YYYY"
 
+  const { last_reset_date } = await chrome.storage.local.get("last_reset_date");
+
+  if (last_reset_date !== today) {
+
+    console.log("¡Detectado cambio de día! Reiniciando contadores locales.");
+
+    await chrome.storage.local.set({
+      "accumulated_leisure_time": 0,
+      "accum_leisure_int": 0,
+      "last_synced_time": 0,
+      "interventions_activated": false,
+      "last_reset_date": today // Actualizamos la fecha de control
+    });
+
+    try {
+      await resetTimeSpent();
+    }
+    catch (error) {
+      console.error(error.message);
+    }
+
+  }
+}
 
 
 // -------------------------------------------

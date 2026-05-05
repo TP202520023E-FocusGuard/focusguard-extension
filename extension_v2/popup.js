@@ -116,6 +116,18 @@ async function loadScreen() {
     const catWebElement = document.getElementById("category-web");
     if (catWebElement) catWebElement.innerHTML = catWeb;
 
+    const title = domain ? await getCurrentTitle() : null;
+    const catContent = title ? await getCategoryContent(domain, title) : "-";
+    const catContentElement = document.getElementById("category-content");
+    if (catContentElement) {
+      if (catContent === "-")
+        catContentElement.innerHTML = "-";
+      else if (catContent === true)
+        catContentElement.innerHTML = "Ocio";
+      else
+        catContentElement.innerHTML = "No Ocio";
+    }
+
     const resttime_left = Math.max(0, assigned_rest_time * 60 - accumulated_leisure_time);
     const timerElement = document.getElementById("display-timer");
     if (timerElement) timerElement.textContent = formatMinutes(resttime_left);
@@ -269,10 +281,31 @@ function getCategoryWeb(domain) {
     });
   });
 }
+function getCategoryContent(domain, title) {
+    return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({ action: "get-category-content", hostname: domain, title: title }, (response) => {
+            if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+            if (response.status === "success") {
+                console.log("Categoría de contenido obtenida exitosamente");
+                resolve(response.data);
+            } else {
+                reject(new Error(response.message));
+            }
+        });
+    });
+}
 
 
 // :::: OTRAS FUNCIONES ::::
 
+function isHttpUrl(url) {
+    try {
+        const { protocol } = new URL(url);
+        return protocol === "http:" || protocol === "https:";
+    } catch {
+        return false;
+    }
+}
 function parseJwt(token) {
   try {
     // 1. Obtenemos la parte del medio (Payload)
@@ -312,7 +345,7 @@ async function getCurrentTab() {
 }
 async function getCurrentDomain() {
   let currentTab = await getCurrentTab();
-  if (!currentTab?.url) return null;
+  if (!currentTab?.url || !isHttpUrl(currentTab.url)) return null;
 
   try {
     return new URL(currentTab.url).hostname;
@@ -320,6 +353,17 @@ async function getCurrentDomain() {
     console.error("No se pudo obtener el dominio de:", currentTab.url);
     return null;
   }
+}
+async function getCurrentTitle() {
+    let currentTab = await getCurrentTab();
+    if (!currentTab?.url || !isHttpUrl(currentTab.url) || !currentTab?.title) return null;
+
+    try {
+        return currentTab.title;
+    } catch (error) {
+        console.error("No se pudo obtener el titulo de:", currentTab.url);
+        return null;
+    }
 }
 
 
