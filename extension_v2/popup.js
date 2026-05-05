@@ -54,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
        */
 
-      const response = await fetch('https://focusguard-api-d7ayede7fufnbshq.eastus-01.azurewebsites.net/api/v1/users', {
+      const response = await fetch('https://focusguard-api-d7ayede7fufnbshq.eastus-01.azurewebsites.net/api/v1/users/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(new_user)

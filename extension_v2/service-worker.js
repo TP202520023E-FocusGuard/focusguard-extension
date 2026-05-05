@@ -473,7 +473,7 @@ async function setWebComplete(tabId, hostname) {
 
     // 1. REGISTRAMOS EL WEBSITE
 
-    let response1 = await fetch(`${BASE_URL}/websites`, {
+    let response1 = await fetch(`${BASE_URL}/websites/`, {
       method: "POST",
       body: JSON.stringify(new_web),
       headers: {"Content-Type": "application/json"}
@@ -495,9 +495,11 @@ async function setWebComplete(tabId, hostname) {
       origen: DEFAULT_ORIGIN
     };
 
+    //console.log("Website-user data:", new_website_user);
+
     // 2. REGISTRAMOS EL WEBSITE POR USUARIO
 
-    let response2 = await fetch(`${BASE_URL}/website-users`, {
+    let response2 = await fetch(`${BASE_URL}/website-users/`, {
       method: "POST",
       body: JSON.stringify(new_website_user),
       headers: {"Content-Type": "application/json"},
@@ -519,7 +521,7 @@ async function setWebComplete(tabId, hostname) {
 
     // 3. REGISTRAMOS LA VISITA AL WEBSITE
 
-    let response3 = await fetch(`${BASE_URL}/website-visited`, {
+    let response3 = await fetch(`${BASE_URL}/website-visited/`, {
       method: "POST",
       body: JSON.stringify(new_web_visited),
       headers: {"Content-Type": "application/json"}
@@ -653,7 +655,7 @@ async function setContentComplete(tabId, title, hostname) {
     let id_web = dataWeb.id;
 
     // REGISTRAMOS EL CONTENIDO
-    let resContent = await fetch(`${BASE_URL}/contents`, {
+    let resContent = await fetch(`${BASE_URL}/contents/`, {
       method: "POST",
       body: JSON.stringify(new_content),
       headers: {
@@ -690,7 +692,7 @@ async function setContentComplete(tabId, title, hostname) {
 
 
     // REGISTRAMOS EL CONTENIDO POR USUARIO
-    let resContentUser = await fetch(`${BASE_URL}/content-users`, {
+    let resContentUser = await fetch(`${BASE_URL}/content-users/`, {
       method: "POST",
       body: JSON.stringify(new_content_user),
       headers: {
@@ -711,7 +713,7 @@ async function setContentComplete(tabId, title, hostname) {
 
     // REGISTRAMOS LA FECHA DE ENTRADA AL CONTENIDO
 
-    let resContentVisited = await fetch(`${BASE_URL}/content-visited`, {
+    let resContentVisited = await fetch(`${BASE_URL}/content-visited/`, {
       method: "POST",
       body: JSON.stringify(new_content_visited),
       headers: {
@@ -923,7 +925,7 @@ async function createInterventionDB(tipo) {
   };
 
   try {
-    let response = await fetch(`${BASE_URL}/interventions`, {
+    let response = await fetch(`${BASE_URL}/interventions/`, {
       method: "POST",
       body: JSON.stringify(intervention),
       headers: {"Content-Type": "application/json"}
@@ -979,11 +981,11 @@ async function categorizeContentv1(hostname, titulo){
 
   return await categorizeContent(titulo);
 }
-async function categorizeContent(titulo) {
+async function categorizeContent(titulo = "") {
   try {
-    let response = await fetch(`${BASE_URL}/ml_classification`, {
+    let response = await fetch(`${BASE_URL}/ml_classification/`, {
       method: "POST",
-      body: JSON.stringify({texto: titulo || ""}),
+      body: JSON.stringify({ texto: titulo }),
       headers: {"Content-Type": "application/json"}
     });
 
@@ -1027,11 +1029,7 @@ async function chosenIntervention() {
 
     if (data){
       console.log("Valor de intervención escogida: ", data);
-      /*
-      if (data.prob_procrastinacion <= 0.2) type_intervention = 1;
-      else if (data.prob_procrastinacion <= 0.5) type_intervention = 2;
-      else type_intervention = 3;
-      */
+
       if (data.action === "BLOQUEO") type_intervention = 3;
       else if (data.action === "ESCRITURA") type_intervention = 2;
       else type_intervention = 1;
@@ -1286,7 +1284,9 @@ function withAuthMessage(handler) {
 async function getUserLogged() {
   try {
     const { user_id } = await chrome.storage.local.get("user_id");
-    return user_id || null;
+    if (user_id) return parseInt(user_id);
+
+    return null;
   } catch (e) {
     console.error("Error al acceder al storage para obtener el id_user:", e);
     return null;
