@@ -1,6 +1,8 @@
-const BASE_URL = "http://127.0.0.1:8000/api/v1";
+//const BASE_URL = "http://127.0.0.1:8000/api/v1";
+const BASE_URL = "https://focusguard-api-d7ayede7fufnbshq.eastus-01.azurewebsites.net/api/v1";
+
 const DEFAULT_ORIGIN = "default";
-const TIME_BETWEEN_INTERVENTIONS = 1 * 30 * 1000; // 20 min en ms
+const TIME_BETWEEN_INTERVENTIONS = 20 * 60 * 1000; // 20 min en ms
 //let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 1;
 //let TYPE_INTERVENTION = 1;
 let timerContent = null;
@@ -1044,19 +1046,19 @@ async function chosenIntervention() {
   if (type_intervention === 1) {
     objeto = {
       type: type_intervention,
-      duration: 10
+      duration: 60
     };
   }
   else if (type_intervention === 2) {
     objeto = {
       type: type_intervention,
-      text: "Texto de prueba."
+      text: "El procrastinador a menudo es notablemente optimista sobre su capacidad para completar una tarea con un plazo ajustado; esto suele ir acompañado de expresiones de seguridad de que todo está bajo control. Adormecido por una falsa sensación de seguridad, el tiempo pasa."
     };
   }
   else if (type_intervention === 3) {
     objeto = {
       type: type_intervention,
-      duration: 15
+      duration: 1800
     };
   }
 
@@ -1535,7 +1537,7 @@ async function checkAlarmState() {
   const hasUpload = allAlarms.some(a => a.name === "upload");
 
   if (!hasPulse) await chrome.alarms.create("pulse", { periodInMinutes: 1 });
-  if (!hasUpload) await chrome.alarms.create("upload", { periodInMinutes: 2 });
+  if (!hasUpload) await chrome.alarms.create("upload", { periodInMinutes: 60 });
 }
 async function handleUnlock() {
   const storageKeys = ["last_intervention", "leisure_start", "leisure_start_int", "interventions_activated"];

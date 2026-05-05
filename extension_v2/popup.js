@@ -46,7 +46,15 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     try {
+      /*
       const response = await fetch('http://127.0.0.1:8000/api/v1/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(new_user)
+      });
+       */
+
+      const response = await fetch('https://focusguard-api-d7ayede7fufnbshq.eastus-01.azurewebsites.net/api/v1/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(new_user)
@@ -141,7 +149,15 @@ async function loadScreen() {
 
 async function login(user) {
   try {
+    /*
     const response = await fetch('http://127.0.0.1:8000/api/v1/users/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(user)
+    });
+    */
+
+    const response = await fetch('https://focusguard-api-d7ayede7fufnbshq.eastus-01.azurewebsites.net/api/v1/users/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(user)
