@@ -353,6 +353,10 @@ function formatMinutes(totalSeconds) {
 
   return `${hDisplay}:${mDisplay}:${sDisplay}`;
 }
+function getHostname(tab) {
+  const hostname = new URL(tab.url).hostname;
+  return hostname.replace(/^www\./, '');
+}
 
 async function getCurrentTab() {
   let queryOptions = { active: true, lastFocusedWindow: true };
@@ -364,7 +368,7 @@ async function getCurrentDomain() {
   if (!currentTab?.url || !isHttpUrl(currentTab.url)) return null;
 
   try {
-    return new URL(currentTab.url).hostname;
+    return getHostname(currentTab);
   } catch (error) {
     console.error("No se pudo obtener el dominio de:", currentTab.url);
     return null;

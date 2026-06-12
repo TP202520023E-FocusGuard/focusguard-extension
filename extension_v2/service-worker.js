@@ -2,7 +2,7 @@
 const BASE_URL = "https://focusguard-api-d7ayede7fufnbshq.eastus-01.azurewebsites.net/api/v1";
 
 const DEFAULT_ORIGIN = "default";
-const TIME_BETWEEN_INTERVENTIONS = 20 * 60 * 1000; // 20 min en ms
+const TIME_BETWEEN_INTERVENTIONS = 1 * 10 * 1000; // 20 min en ms
 //let TYPE_INTERVENTION = Math.floor(Math.random() * 2) + 1;
 //let TYPE_INTERVENTION = 1;
 let timerContent = null;
@@ -254,7 +254,7 @@ async function handleUpdated(tabId, changeInfo, tabInfo) {
   // Si el update está ocurriendo en una pestaña inactiva. Ej. Abrir varios websites rápido o refrescar una pestaña inactiva con click derecho
   if (last_web_activated !== tabId) return;
 
-  let hostname = new URL(tabInfo.url).hostname;
+  let hostname = getHostname(tabInfo);
 
   // --- BLOQUE A: RASTREO DE DOMINIO (WEB) ---
   if(changeInfo.status === 'complete') {
@@ -379,7 +379,7 @@ async function handleActivated(activeInfo) {
     ]);
     if (!tab_info) return;
 
-    const hostname = tab_info.url ? new URL(tab_info.url).hostname : null;
+    const hostname = tab_info.url ? getHostname(tab_info) : null;
 
     // Actualizamos el estado de la pestaña activa inmediatamente
     await chrome.storage.local.set({ "last_web_activated": newTabId, "last_domain": hostname });
@@ -1012,6 +1012,7 @@ async function chosenIntervention() {
   let objeto = {};
   let type_intervention = 1;
 
+
   try {
     const id_user = await getUserLogged();
     if (!id_user) throw new Error(`No se pudo obtener el usuario logeado`);
@@ -1292,6 +1293,10 @@ async function getUserLogged() {
     return null;
   }
 }
+function getHostname(tab) {
+ const hostname = new URL(tab.url).hostname;
+ return hostname.replace(/^www\./, '');
+}
 
 // Limpiadores
 async function finishOcioSession() {
@@ -1389,7 +1394,7 @@ async function closeOldWebAndContent(tabs_tracking, content_tracking, oldTabId) 
 async function openNewWebAndContent(newTab, leisure_start, leisure_start_int, interventions_activated) {
   // APERTURA de la nueva pestaña (si existe y es válida)
   if (newTab) {
-    const hostname = (newTab.url) ? new URL(newTab.url).hostname : null;
+    const hostname = (newTab.url) ? getHostname(newTab) : null;
     let updates = {
       last_web_activated: newTab.id,
       last_domain: hostname
@@ -1403,7 +1408,7 @@ async function openNewWebAndContent(newTab, leisure_start, leisure_start_int, in
 async function evaluateCurrentTabState(tabInfo, leisure_start, leisure_start_int, interventions_activated, setWebAndContent = false) {
   if (!tabInfo?.url || !isHttpUrl(tabInfo?.url)) return;
 
-  const hostname = new URL(tabInfo.url).hostname;
+  const hostname = getHostname(tabInfo);
 
   const [webs_doblefilo, webs_distractive] = await Promise.all([
     getWebsDobleFilo(),
@@ -1459,7 +1464,7 @@ async function initializeStorage() {
 
     let updates = {"focus_chrome": true};
     updates.last_web_activated = active_tab ? active_tab.id : null;
-    updates.last_domain = (active_tab?.url) ? new URL(active_tab.url).hostname : null;
+    updates.last_domain = (active_tab?.url) ? getHostname(active_tab) : null;
     updates.assigned_rest_time = await getAssignedRestTime(user_id) || 0; // minutos
     updates.interventions_activated = ((accumulated_time ?? 0) >= (updates.assigned_rest_time * 60));
     updates.accumulated_leisure_time = accumulated_time; // segundos
