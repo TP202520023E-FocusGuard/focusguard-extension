@@ -220,19 +220,6 @@ function showDashboard() {
 // :::: FUNCIONES ON-MESSAGE ::::
 
 function initializeStorage() {
-  /*
-  chrome.runtime.sendMessage({ action: "initialize-storage" }, (response) => {
-    if (chrome.runtime.lastError) {
-      console.error("Error:", chrome.runtime.lastError);
-      return;
-    }
-    if (response.status === "success")
-      console.log("Storage inicializado exitosamente");
-    else
-      console.error("Storage no se pudo inicializar", response.message);
-  });
-  */
-
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage({ action: "initialize-storage" }, (response) => {
       if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);

@@ -1077,15 +1077,6 @@ async function uploadDataStorage() {
 //           FUNCIONES OPERATIVAS
 // -------------------------------------------
 
-async function isThereRestTimeLeft() {
-  const data = await chrome.storage.local.get(["assigned_rest_time", "accumulated_leisure_time"]);
-  const assigned = (data.assigned_rest_time || 0) * 60; // Convertir a segundos
-  const accumulated = data.accumulated_leisure_time || 0;
-
-  // Si no hay tiempo asignado, por defecto permitimos (true)
-  if (!data.assigned_rest_time) return false;
-  return assigned > accumulated;
-}
 async function getTodayIntervention() {
   const { last_intervention } = await chrome.storage.local.get("last_intervention");
   if (!last_intervention) return null;
@@ -1489,7 +1480,7 @@ async function updateRestTimeLocal(newRestTime) {
     if (newRestTime) {
       let { accumulated_leisure_time = 0 } = await chrome.storage.local.get("accumulated_leisure_time");
 
-      const interventions_activated = newRestTime && accumulated_leisure_time >= (newRestTime * 60);
+      const interventions_activated = accumulated_leisure_time >= (newRestTime * 60);
 
       await chrome.storage.local.set({ "assigned_rest_time": newRestTime, interventions_activated });
     }
@@ -1542,7 +1533,7 @@ async function checkAlarmState() {
   const hasUpload = allAlarms.some(a => a.name === "upload");
 
   if (!hasPulse) await chrome.alarms.create("pulse", { periodInMinutes: 1 });
-  if (!hasUpload) await chrome.alarms.create("upload", { periodInMinutes: 60 });
+  if (!hasUpload) await chrome.alarms.create("upload", { periodInMinutes: 2 });
 }
 async function handleUnlock() {
   const storageKeys = ["last_intervention", "leisure_start", "leisure_start_int", "interventions_activated"];
