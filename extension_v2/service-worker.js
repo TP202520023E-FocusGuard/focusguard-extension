@@ -1477,20 +1477,27 @@ async function initializeStorage() {
 async function updateRestTimeLocal(newRestTime) {
 
   try {
-    if (newRestTime) {
-      let { accumulated_leisure_time = 0 } = await chrome.storage.local.get("accumulated_leisure_time");
+    if (newRestTime !== null && newRestTime !== undefined) {
 
-      const interventions_activated = accumulated_leisure_time >= (newRestTime * 60);
+      let { accumulated_leisure_time = 0 } =
+        await chrome.storage.local.get("accumulated_leisure_time");
 
-      await chrome.storage.local.set({ "assigned_rest_time": newRestTime, interventions_activated });
-    }
-    else
+      const interventions_activated =
+        accumulated_leisure_time >= (newRestTime * 60);
+
+      await chrome.storage.local.set({
+        assigned_rest_time: newRestTime,
+        interventions_activated
+      });
+
+    } else {
       throw new Error("El tiempo proporcionado no es válido");
+    }
+
   } catch (e) {
     console.error("No se pudo actualizar el tiempo de descanso: ", e.message);
     throw e;
   }
-
 }
 async function setFocusChrome(isFocused) {
   await chrome.storage.local.set({"focus_chrome": isFocused});
