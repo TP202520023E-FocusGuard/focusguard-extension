@@ -374,7 +374,7 @@ async function handleActivated(activeInfo) {
 
     // Ejecución en paralelo: Obtenemos info de la pestaña y la lista de bloqueo simultáneamente
     const [tab_info, webs_distractive] = await Promise.all([
-      chrome.tabs.get(newTabId).catch(() => null), // Evitamos que un error de tab rompa tod.o
+      chrome.tabs.get(newTabId).catch(() => null), // Evitamos que un error de tab rompa todo
       getWebsDistractive()
     ]);
     if (!tab_info) return;
@@ -384,14 +384,13 @@ async function handleActivated(activeInfo) {
     // Actualizamos el estado de la pestaña activa inmediatamente
     await chrome.storage.local.set({ "last_web_activated": newTabId, "last_domain": hostname });
 
-    // verificamos si existe alguna web anterior o si esta será la primera
+    // Verificamos si existe alguna web anterior o si esta será la primera
     if (!oldTabId) {
       await setFocusChrome(true);
       return;
     }
 
     // --- REGISTRO DE SALIDA E INGRESO A PESTAÑA YA EXISTENTE ---
-    // Si focus_chrome es false significa que el usuario clickeo otra pestaña al reenfocarse a Chrome
     if (focus_chrome) {
       await closeOldWebAndContent(tabs_tracking, content_tracking, oldTabId);
       await openNewWebAndContent(tab_info, null, null, interventions_activated);
@@ -400,6 +399,17 @@ async function handleActivated(activeInfo) {
       await setFocusChrome(true);
       await openNewWebAndContent(tab_info, leisure_start, leisure_start_int, interventions_activated);
     }
+
+    // =========================================================================
+    // ✨ SOLUCIÓN: Evaluar intervención al cambiar a una pestaña distractora
+    // =========================================================================
+    if (hostname && webs_distractive.includes(hostname)) {
+      console.log(`[Activated] El usuario cambió a una pestaña distractora: ${hostname}. Evaluando intervención...`);
+      await shouldLaunchIntervention(newTabId, interventions_activated);
+      await syncLeisureStatus(leisure_start, interventions_activated);
+      await syncLeisureStatusInt(leisure_start_int, interventions_activated);
+    }
+    // =========================================================================
 
   } catch (e) {
     console.error("Error en handleActivated:", e);
@@ -1031,7 +1041,7 @@ async function chosenIntervention() {
     if (data){
       console.log("Valor de intervención escogida: ", data);
 
-      if (data.action === "BLOQUEO") type_intervention = 3;
+      if (data.action === "BLOQUEO TOTAL") type_intervention = 3;
       else if (data.action === "ESCRITURA") type_intervention = 2;
       else type_intervention = 1;
     }
@@ -1168,8 +1178,9 @@ async function injectIntervention(tabId, interventionReLaunched = null) {
         if (data.type === 2 && typeof initLevelTwoIntervention === 'function')
           initLevelTwoIntervention(data.text);
         if (data.type === 3 && typeof initLevelThreeIntervention === 'function') {
-          const remainingSecs = (new Date(data.release_date).getTime() - Date.now()) / 1000;
-          initLevelThreeIntervention(Math.max(0, remainingSecs));
+          //const remainingSecs = (new Date(data.release_date).getTime() - Date.now()) / 1000;
+          //initLevelThreeIntervention(Math.max(0, remainingSecs));
+          initLevelThreeIntervention(20);
         }
       },
       args: [interventionData]
@@ -1210,33 +1221,33 @@ async function injectIntervention(tabId, interventionReLaunched = null) {
   }
 }
 async function shouldLaunchIntervention(tabId, interventions_activated) {
-  //const hasTime = await isThereRestTimeLeft(); // Paso 1: Tiene tiempo, no molestar.
-  if (!interventions_activated) return;
-
+  // OBTENER LA INTERVENCIÓN ACTUAL DESDE LA BD/STORAGE
   const intervention = await getTodayIntervention();
 
-  // Si no hay intervención hoy, lanzamos sin problema
+  // Si no hay intervención registrada hoy en absoluto, lanzamos la primera
   if (!intervention) {
     console.log("PRIMERA INTERVENCIÓN LANZADA");
     await injectIntervention(tabId);
     return;
   }
 
+  // Verificamos si la intervención de hoy ya fue desbloqueada por el usuario
   const wasUnlocked = !!intervention.unlock_date;
 
   if (wasUnlocked) {
-
+    // Si ya fue desbloqueada, evaluamos si ya acumuló el tiempo de ocio necesario para la SIGUIENTE
     const { accum_leisure_int = 0 } = await chrome.storage.local.get("accum_leisure_int");
 
-    if (accum_leisure_int >= TIME_BETWEEN_INTERVENTIONS / 1000) {
-      console.log("INTERVENCIÓN LANZADA");
+    if (accum_leisure_int >= (TIME_BETWEEN_INTERVENTIONS / 1000)) {
+      console.log("SIGUIENTE INTERVENCIÓN LANZADA (Tiempo de ocio cumplido)");
       await injectIntervention(tabId);
     }
   } else {
-    console.log("Anti-evasión: Re-lanzando intervención no terminada.");
+    // CASO ANTI-EVASIÓN: La intervención sigue activa (no ha sido desbloqueada).
+    // Forzamos la inyección en la pestaña ACTUAL (tabId) donde el usuario navega ahora.
+    console.log("Anti-evasión: Re-lanzando intervención no terminada en pestaña actual.");
     await injectIntervention(tabId, intervention);
   }
-
 }
 
 // Validadores
@@ -1314,22 +1325,21 @@ async function finishOcioSessionInt() {
   const storageKeys = ["leisure_start_int", "accum_leisure_int", "time_between_int_passed"];
   let { leisure_start_int = null, accum_leisure_int, time_between_int_passed } = await chrome.storage.local.get(storageKeys);
 
-  if (leisure_start_int) {// Si existe un registro de Ocio entre intervenciones
-
-    // Calculamos el tiempo de ocio acumulado entre intervenciones
+  if (leisure_start_int) { 
     const leisure_out = Date.now();
-    const seconds_interval = Math.floor((leisure_out - leisure_start_int) / 1000); // Convertimos a segundos
+    const seconds_interval = Math.floor((leisure_out - leisure_start_int) / 1000); 
     const new_accumulated = (accum_leisure_int || 0) + seconds_interval;
 
-    console.log("leisure_start_int CERRADO")
+    console.log("leisure_start_int CERRADO");
 
     let updates = {
-      leisure_start_int: null,
+      leisure_start_int: null, // Se cierra temporalmente el intervalo actual
       accum_leisure_int: new_accumulated
     };
 
-    if (!time_between_int_passed && new_accumulated >= (TIME_BETWEEN_INTERVENTIONS / 1000))
+    if (!time_between_int_passed && new_accumulated >= (TIME_BETWEEN_INTERVENTIONS / 1000)) {
       updates.time_between_int_passed = true;
+    }
 
     console.log("Leisure between Int. : ", new_accumulated);
     await chrome.storage.local.set(updates);
@@ -1383,7 +1393,6 @@ async function closeOldWebAndContent(tabs_tracking, content_tracking, oldTabId) 
   await finishOcioSessionInt();
 }
 async function openNewWebAndContent(newTab, leisure_start, leisure_start_int, interventions_activated) {
-  // APERTURA de la nueva pestaña (si existe y es válida)
   if (newTab) {
     const hostname = (newTab.url) ? getHostname(newTab) : null;
     let updates = {
@@ -1391,7 +1400,31 @@ async function openNewWebAndContent(newTab, leisure_start, leisure_start_int, in
       last_domain: hostname
     };
 
+    // Evaluamos el estado normal del sistema
     await evaluateCurrentTabState(newTab, leisure_start, leisure_start_int, interventions_activated, true);
+
+    // =========================================================================
+    // ✨ REINYECCIÓN POST-DESBLOQUEO DE CONTADORES
+    // =========================================================================
+    if (hostname) {
+      const webs_distractive = await getWebsDistractive();
+      
+      // Si la pestaña actual es distractora, nos aseguramos de que los contadores estén vivos
+      if (webs_distractive.includes(hostname)) {
+        const ahora = Date.now(); // Guardamos timestamp numérico para consistencia con Date.now()
+        
+        // Si tras el desbloqueo o cierre previo quedaron en null, los volvemos a encender
+        if (!leisure_start) {
+          console.log("leisure_start REINICIADO TRAS NAVEGACIÓN");
+          updates["leisure_start"] = ahora;
+        }
+        if (!leisure_start_int) {
+          console.log("leisure_start_int REINICIADO TRAS NAVEGACIÓN");
+          updates["leisure_start_int"] = ahora;
+        }
+      }
+    }
+    // =========================================================================
 
     await chrome.storage.local.set(updates);
   }

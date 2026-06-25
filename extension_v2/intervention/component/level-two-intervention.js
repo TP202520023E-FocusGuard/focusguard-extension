@@ -245,6 +245,7 @@
                 const percent = (val.length / targetText.length) * 100;
                 progressInner.style.width = `${percent}%`;
                 progressInner.style.background = '#3b82f6';
+                input.style.borderColor = '#3b82f6';
 
                 if (val === targetText) {
                     unlockBtn.classList.add('ready');
@@ -253,18 +254,19 @@
                     unlockBtn.classList.remove('ready');
                 }
             } else {
-                input.value = "";
 
-                progressInner.style.width = "0%";
-                progressInner.style.background = '#3b82f6';
-                unlockBtn.classList.remove('ready');
-
-                input.style.borderColor = '#ef4444';
-                setTimeout(() => {
-                    input.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-                }, 200);
-                //progressInner.style.background = '#ef4444';
+                //progressInner.style.width = "0%";
+                //progressInner.style.background = '#3b82f6';
                 //unlockBtn.classList.remove('ready');
+
+                //input.style.borderColor = '#ef4444';
+                //setTimeout(() => {
+                //    input.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                //}, 200);
+
+                unlockBtn.classList.remove('ready');
+                input.style.borderColor = '#ef4444';
+                progressInner.style.background = '#ef4444';
             }
         });
 
